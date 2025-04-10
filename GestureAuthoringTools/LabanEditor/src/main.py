@@ -51,8 +51,10 @@ class application:
 
     # data
     jointFrames = []
+    joint_lenghts=None
     all_laban = None
     timeS = None
+    keyframes= None
 
     #------------------------------------------------------------------------------
     # Class initialization
@@ -69,7 +71,7 @@ class application:
 
         if (self.fShowGUI):
             # create a graph for the 3d skeletons
-            self.graphSkeleton = graphSkeleton.graph3D()
+            self.graphSkeleton = graphSkeleton.graph3D(filePath= self.inputFilePath)
 
             # create a figure for the filter graph
             self.graphFilter = graphFilter.graphFilter()
@@ -100,14 +102,16 @@ class application:
         parser.add_argument('--algorithm', default='total', choices=['total', 'parallel', 'naive'], help='select the Laban key frame extraction algorithm: "total" total energy, "parallel" parallel energy, "naive" treat each Kinect frame as a keyframe')
         parser.add_argument('--base-rotation-style', default='every',
                             choices=['every', 'first'], help='select the base rotation style. "every": update base rotation every frame. "first": use the base rotation of the first frame.')
-        parser.add_argument('--inputfile', help='Kinect data input file')
+        parser.add_argument('--inputfile', default="0018_TraditionalChineseDance001", help='Data input file')
+        parser.add_argument('--kinect', default=False, help='process it as amass data. If false, process as kinect/mediapipe')
         parser.add_argument('--nogui', action='store_true', default=False, help='process Kinect data but don\'t display interactive GUI')
         parser.add_argument('--outputfolder', help='output folder; if not specified, output folder is .\\data_output')
         parser.add_argument('--screenwidth', default=1920, help='overwrite default screen width')
         parser.add_argument('--screenheight', default=1080, help='overwrite default screen height')
-
+        
         cmdArgs = parser.parse_args()
 
+        self.kinect=cmdArgs.kinect
         if (cmdArgs.inputfile == None):
             print('No inputfile was specified.')
             exit()
@@ -127,33 +131,43 @@ class application:
     # -----------------------------------------------------------------------------
     # determine input and various output file paths
     #
+
     def determineFilePaths(self):
-        # determine absolute input file path
-        if os.path.isabs(self.inputName):
-            self.inputFilePath = self.inputName
+        """
+        Determines and sets up file paths for input and output files,
+        supporting both CSV (Kinect data) and .pt (AMASS dataset) formats.
+        """
+        
+        file_extension = os.path.splitext(self.inputName)[1]
+        # ✅ Handle CSV input files (Kinect Data)
+        if self.kinect:
+            if os.path.isabs(self.inputName):
+                self.inputFilePath = self.inputName
+            else:
+                self.inputFilePath = os.path.join(settings.cwd, 'data_input', self.inputName)
+
+            # Ensure file has a .csv extension
+            if file_extension == '':
+                self.inputFilePath = self.inputFilePath + '.csv'
+
+            # Remove extension from inputName for processing
+            self.inputName = os.path.splitext(self.inputName)[0]
+
+        # ✅ Handle PT input files (AMASS Dataset)
         else:
-            self.inputFilePath = os.path.join(settings.cwd, 'data_input', self.inputName)
+            work_dir=os.path.join(settings.cwd,"amass/support_data/prepared_data/VXX_SVXX_TXX")
+            subject_id = self.inputName
+            dataset_dir = os.path.join(work_dir, 'stage_III', 'vald')
+            print(dataset_dir)
+            self.inputFilePath = os.path.join(dataset_dir, f"{subject_id}_dataset.pt")
 
-        # make inputName file name only
-        splitInput = os.path.split(os.path.abspath(self.inputFilePath))
-        if  splitInput[1] != '':
-            self.inputName = splitInput[1]
-
-        if os.path.splitext(self.inputName)[1] == '':
-            self.inputFilePath = self.inputFilePath + '.csv'
-
-        # remove file extension from inputName, if any
-        inputNameSplit = os.path.splitext(self.inputName)
-        if  inputNameSplit[1] != '':
-            self.inputName = inputNameSplit[0]
-
-        # determine output file paths
+        # ✅ Determine Output File Paths
         self.outputName = self.inputName
 
-        if (self.outputFolder is None):
+        if self.outputFolder is None:
             self.outputFolder = os.path.join(settings.cwd, 'data_output')
 
-        # make sure output folder exists.
+        # Ensure output folder exists
         if not os.path.exists(self.outputFolder):
             try:
                 os.makedirs(self.outputFolder)
@@ -161,18 +175,24 @@ class application:
                 if e.errno != errno.EEXIST:
                     raise
 
+        # ✅ Set Output File Paths
         self.outputFilePathTxt = os.path.join(self.outputFolder, self.outputName + '.txt')
         self.outputFilePathJson = os.path.join(self.outputFolder, self.outputName + '.json')
         self.outputFilePathImg = os.path.join(self.outputFolder, self.outputName + '.png')
 
-        # make beautified input and output file path
+        print("FP=",self.inputFilePath)
+        # ✅ Generate Beautified Paths
         splitInput = os.path.split(os.path.abspath(self.inputFilePath))
         relativePath = self.getRelativePath(settings.cwd, splitInput[0])
+        if file_extension != '.csv':
+            relativePath= "../"+relativePath
         self.strBeautifiedInputFile = os.path.join(relativePath, splitInput[1])
-
+        print("FP=",self.inputFilePath, "&", splitInput[0], "&", splitInput[1], "&", relativePath, "&", self.strBeautifiedInputFile)
+        
         splitOutput = os.path.split(os.path.abspath(self.outputFilePathJson))
         relativePath = self.getRelativePath(settings.cwd, splitOutput[0])
         self.strBeautifiedOutputFile = os.path.join(relativePath, splitOutput[1])
+
 
     # -----------------------------------------------------------------------------
     #
@@ -230,9 +250,13 @@ class application:
     #
     def loadKinectDataFile(self):
         self.logMessage('Reading input data file ' + self.strBeautifiedInputFile)
-
-        self.jointFrames = kinect.loadKinectDataFile(self.inputFilePath, True)
-
+        file_extension = os.path.splitext(self.strBeautifiedInputFile)[1]
+        print(file_extension)
+        if self.kinect:
+            self.jointFrames = kinect.loadKinectDataFile(self.inputFilePath, True)
+        else:
+            self.jointFrames, self.joint_lenghts= kinect.loadAMASSData(self.inputFilePath) 
+            
         self.logMessage('Loaded ' + str(len(self.jointFrames)) + ' Kinect data frames.')
         if (len(self.jointFrames) < 1):
             self.logMessage('No Kinect data frames to process.')
@@ -268,7 +292,7 @@ class application:
 
         ax = self.graphFilter.ax if (self.graphFilter != None) else None
 
-        [self.timeS, self.all_laban] = self.labanotation.applyAlgorithm(ax, self.jointFrames, self.algorithm, forceReset,
+        [self.timeS, self.all_laban, self.keyframes] = self.labanotation.applyAlgorithm(ax, self.jointFrames, self.algorithm, forceReset,
                                                                         base_rotation_style=self.base_rotation_style)
 
         # share labanotation with skeleton graph and laban visualizer
@@ -280,6 +304,9 @@ class application:
 
         if (self.graphFilter != None):
             self.graphFilter.fig.canvas.draw_idle()
+        
+        
+        ecm, laban_keyframes= self.graphSkeleton.calculate_ecm(self.keyframes)
 
     #------------------------------------------------------------------------------
     #
@@ -356,7 +383,7 @@ class application:
                 forceReset = True
             else:
                 self.logMessage("Error: The file '" + str(file) + "' is not a valid file.")
-                messageBox.showerror("Labanotation", "The file '" + str(file) + "' is not a valid file.", parent=settings.tkGuiCanvas)
+                messagebox.showerror("Labanotation", "The file '" + str(file) + "' is not a valid file.", parent=settings.tkGuiCanvas)
                 return
 
         # load Kinect capture data
@@ -377,10 +404,12 @@ class application:
         # apply selected algorithm
         self.applyAlgoritm(self.algorithm, forceReset)
 
-        if (self.fShowGUI):
+        if True :#(self.fShowGUI):
             # render skeleton(s) at time 0
             self.selectTime(0)
         else:
+            print("Saving json")
+            self.saveImage()
             # write to file
             self.saveJSON()
 

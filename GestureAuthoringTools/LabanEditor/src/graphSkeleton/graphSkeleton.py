@@ -6,6 +6,7 @@
 import os, math, copy
 import numpy as np
 
+from pathlib import Path
 import matplotlib.pyplot as plt
 plt.rcParams['toolbar'] = 'None'
 from mpl_toolkits.mplot3d import Axes3D
@@ -14,7 +15,8 @@ from matplotlib.widgets import Slider, Button, RadioButtons
 from mpl_toolkits.axes_grid1.inset_locator import InsetPosition
 import matplotlib.patches as patches
 import matplotlib.ticker as ticker
-
+from human_body_prior.body_model.body_model import BodyModel
+import torch
 try:
     from tkinter import messagebox
 except ImportError:
@@ -23,15 +25,20 @@ except ImportError:
 
 import settings
 
+#------------------------------------------------------------------------------
+# AMASS Joint Mapping to Kinect Body Format
+
+
 class graph3D:
     fig = None
     ax = None
     jointFrames = []    # all the frames
+    labanjointFrames = []
     all_laban = []
     timeS = []
 
     joints = []         # temporary joints to be drawn
-
+   
     # a joint point, 'ts' stands for tracking status
     jType = np.dtype({'names':['x', 'y', 'z','ts'],'formats':[float,float,float,int]})
 
@@ -54,14 +61,16 @@ class graph3D:
                                 jType, jType, jType, jType,
                                 jType, jType, jType, jType,
                                 jType, jType, jType, jType, jType]})
-
+    sq_error=[]
+    limb_lenghts=[]
     isInterpolatedKeyFrame = False
     annSelection = None
+    
 
     #------------------------------------------------------------------------------
     # Class initialization
     #
-    def __init__(self):
+    def __init__(self, filePath=None):
         self.strTitle = '3D Joint Data'
         self.fig = plt.figure()
         self.fig.canvas.set_window_title(self.strTitle)
@@ -119,6 +128,70 @@ class graph3D:
         self.joints.append([0,0,0,6])   # thumbLeft, #22
         self.joints.append([0,0,0,11])  # handTipRight, #23
         self.joints.append([0,0,0,10])  # thumbTipRight, #24
+        
+        # Importing teh T-model and centering its root on 0 to start
+        support_dir = Path(filePath).resolve().parents[4]  # Adjust for correct model path
+        model_path = os.path.join(support_dir, 'body_models/smplh/male/model.npz')
+        
+        # Load SMPLH body model
+        bm = BodyModel(bm_fname=model_path, num_betas=16).to('cpu')
+
+        # T-pose: zero pose and zero shape
+        body_pose = torch.zeros((1, 63))  # (1, 63)
+        betas = torch.zeros((1, 16))
+        trans = torch.zeros((1, 3))
+
+        # Output: joints and mesh
+        out = bm.forward(body_pose=body_pose, betas=betas, transl=trans)
+
+        # Canonical joint positions in T-pose (shape: [1, 52, 3])
+        self.amass_joints = out.Jtr[0].detach().cpu().numpy()
+        # self.amass_joints[:,  [1, 2]] = self.amass_joints[:,  [2, 1]]  # Y ↔ Z
+        
+        move = self.amass_joints[0]
+        self.amass_joints-=move
+        
+        # scale, spine_shoulder->spine_midlle is 5
+        d = np.linalg.norm(self.amass_joints[3]-self.amass_joints[6])
+        self.scale = (3.0 / d)
+        self.amass_joints*=self.scale
+        
+        self.AMASS_TO_KINECT_MAP = {
+            "spineB": 0, "spineM": 3,
+            "neck": 12, "head": 15,
+            "shoulderL": 16, "elbowL": 18, "wristL": 20, "handL": 25,
+            "shoulderR": 17, "elbowR": 19, "wristR": 21, "handR": 41,
+            "hipL": 1, "kneeL": 4, "ankleL": 7, "footL": 10,
+            "hipR": 2, "kneeR": 5, "ankleR": 8, "footR": 11,
+            "spineS": 6,"handTL": 34, "thumbL": 35, "handTR": 49, "thumbR": 50
+            }
+
+        self.skeleton_connections = [
+            ('spineB', 'spineM'), ('spineM', 'spineS'), ('spineS', 'neck'), ('neck', 'head'),
+            ('spineS', 'shoulderL'), ('shoulderL', 'elbowL'), ('elbowL', 'wristL'), ('wristL', 'handL'),
+            ('spineS', 'shoulderR'), ('shoulderR', 'elbowR'), ('elbowR', 'wristR'), ('wristR', 'handR'),
+            ('spineB', 'hipL'), ('hipL', 'kneeL'), ('kneeL', 'ankleL'), ('ankleL', 'footL'),
+            ('spineB', 'hipR'), ('hipR', 'kneeR'), ('kneeR', 'ankleR'), ('ankleR', 'footR')
+        ]
+
+        # Ordered joint names for drawing: index is your internal joint ID
+        self.joint_names_ordered = [
+            'spineB', 'spineM', 'neck', 'head',
+            'shoulderL', 'elbowL', 'wristL', 'handL',
+            'shoulderR', 'elbowR', 'wristR', 'handR',
+            'hipL', 'kneeL', 'ankleL', 'footL',
+            'hipR', 'kneeR', 'ankleR', 'footR', 'spineS'
+        
+        ]
+        self.name_to_index = {name: i for i, name in enumerate(self.joint_names_ordered)}
+
+        # Get parent index per joint using the connections
+        self.parents = [-1] * len(self.joint_names_ordered)
+        for parent, child in self.skeleton_connections:
+            child_idx = self.name_to_index[child]
+            parent_idx = self.name_to_index[parent]
+            self.parents[child_idx] = parent_idx
+
 
     # -----------------------------------------------------------------------------
     # canvas close event
@@ -271,6 +344,8 @@ class graph3D:
 
     #------------------------------------------------------------------------------
     #
+    
+    
     def selectTime(self, time, fUpdateSlider=False):
         time = self.slidertime.valmin + (time * (self.slidertime.valmax - self.slidertime.valmin))
 
@@ -321,11 +396,38 @@ class graph3D:
                 print('Right Wrist:' + str(wrR[t][1]) + ', ' + str(wrR[t][2]))
                 print('Left Elbow:' + str(elL[t][1]) + ', ' + str(elL[t][2]))
                 print('Left Wrist:' + str(wrL[t][1]) + ', ' + str(wrL[t][2]))
+                print('Right Knee:' + str(knR[t][1]) + ', ' + str(knR[t][2]))
+                print('Left Knee:' + str(knL[t][1]) + ', ' + str(knL[t][2]))
+                print('Right Ankle:' + str(anR[t][1]) + ', ' + str(anR[t][2]))
+                print('Left Ankle:' + str(anL[t][1]) + ', ' + str(anL[t][2]))
+                print('Right Foot:' + str(ftR[t][1]) + ', ' + str(ftR[t][2]))
+                print('Left Foot:' + str(ftL[t][1]) + ', ' + str(ftL[t][2]))
+                print('Head:' + str(head[t][1]) + ', ' + str(head[t][2]))
+                print('Torso:' + str(torso[t][1]) + ', ' + str(torso[t][2]))
 
-            curr_laban = ['Start Time:' + str(time), 'Duration:0', 'Head:Forward:Normal', 
-                'Right Elbow:' + laban[0][0] + ':' + laban[0][1], 'Right Wrist:' + laban[1][0] + ':' + laban[1][1], 
-                'Left Elbow:' + laban[2][0] + ':' + laban[2][1], 'Left Wrist:' + laban[3][0] + ':' + laban[3][1], 
-                'Rotation:ToLeft:0.0']
+            curr_laban = [
+                        'Start Time:' + str(time),
+                        'Duration:0',
+                        
+                        # Staff-aligned ordering
+                        'Left Elbow:' + laban[0][0] + ':' + laban[0][1],
+                        'Left Wrist:' + laban[1][0] + ':' + laban[1][1],
+                        'Torso:' + laban[2][0] + ':' + laban[2][1],
+                        'Left Ankle:' + laban[3][0] + ':' + laban[3][1],
+                        'Left Foot:' + laban[4][0] + ':' + laban[4][1],
+                        'Left Knee:' + laban[5][0] + ':' + laban[5][1],
+                        'Right Knee:' + laban[6][0] + ':' + laban[6][1],
+                        'Right Foot:' + laban[7][0] + ':' + laban[7][1],
+                        'Right Ankle:' + laban[8][0] + ':' + laban[8][1],
+                        'Torso_Repeat:' + laban[9][0] + ':' + laban[9][1],
+                        'Right Wrist:' + laban[10][0] + ':' + laban[10][1],
+                        'Right Elbow:' + laban[11][0] + ':' + laban[11][1],
+                        'Head:' + laban[12][0] + ':' + laban[12][1],
+                        'Support:' + laban[13][1],
+                        'Rotation:ToLeft:' + str(laban[14])
+                    ]
+
+
 
             self.drawLabanotationSkeleton(laban = curr_laban)
 
@@ -334,7 +436,7 @@ class graph3D:
                      self.annSelection.remove()
 
                 color = 'green'
-                time = time / 1000.0
+                time = time / 100.0
                 self.annSelection = self.axFrameBlocks2.annotate('', xy=(time, 0.0), xytext=(time, -0.5),
                     weight='bold', color=color,
                     arrowprops=dict(arrowstyle='wedge', connectionstyle="arc3", color=color))
@@ -475,7 +577,7 @@ class graph3D:
             if (i==20) or (i==4) or (i==5) or (i==6) or (i==8) or (i==9) or (i==10):
                 alpha = a
             else:
-                alpha = 0.3
+                alpha = 0.5
 
             p = self.joints[i]
             self.ax.scatter(p[0],p[1],p[2],color=c, alpha=alpha)
@@ -514,17 +616,17 @@ class graph3D:
         self.resetGraph()
 
         # center skeleton around its spineB
-        move_0 = self.joints[0][0]
-        move_1 = self.joints[0][1]
-        move_2 = self.joints[0][2]
+        move_0 = 0#self.joints[0][0]
+        move_1 = 0#self.joints[0][1]
+        move_2 = 0#self.joints[0][2]
 
         for i in range(0,len(self.joints)):
             self.joints[i][0] = self.joints[i][0]-move_0
             self.joints[i][1] = self.joints[i][1]-move_1
             self.joints[i][2] = self.joints[i][2]-move_2
 
-        # rotate skeleton to face forward towards camera
-        self.correctSkeletonRotation()
+        # # rotate skeleton to face forward towards camera
+        # self.correctSkeletonRotation()
 
         # scale, spine_shoulder->spine_midlle is 5
         d0 = self.joints[20][0]-self.joints[1][0]
@@ -533,7 +635,7 @@ class graph3D:
 
         d = (d0**2+d1**2+d2**2)**0.5
 
-        self.scale = (5.0 / d)
+        self.scale = (3.0 / d)
 
         for i in range(0, len(self.joints)):
             self.joints[i][0] = (self.joints[i][0] * self.scale)
@@ -556,37 +658,78 @@ class graph3D:
     # convert labanotation to joint points
     #
     def mapLabanotation2Joints(self, laban):
-        self.calc_joint(1,  [0, 6, 0])                  # spineBase->spineMid
-        self.calc_joint(20, [0, 5, 0])                  # spineMid->spineShoulder
-        self.calc_joint(2,  [0, 2, 0])                  # spineShoulder->neck
-        self.calc_joint(3,  [0, 3, 0])                  # neck->head
-        self.calc_joint(4,  [4,-0.5,0])                 # spineShoulder->shoulderLeft
+        """
+        Builds self.joints using canonical AMASS T-pose + laban offsets.
+        self.joints[i] = [x, y, z, parent_idx]
+        """
 
-        vec = self.laban2vec(laban, "left elbow")       # shoulderLeft->elbowLeft
-        self.calc_joint(5,vec)
+        # Reset joint positions
+        # for i in range(len(self.joint_names_ordered)):
+        #     self.joints[i][0:3] = [0, 0, 0]
+            # self.joints[i][3] = self.parents[i]
 
-        vec = self.laban2vec(laban, "left wrist")       # elbowLeft->wristLeft
-        self.calc_joint(6,vec)
+        # Set pelvis (spineB, index 0)
+        
+        root_name = self.joint_names_ordered[0]
+        root_amass_idx = self.AMASS_TO_KINECT_MAP[root_name]
+        self.joints[0][0:3] = self.amass_joints[root_amass_idx]
+        
+        footL_y = self.amass_joints[self.AMASS_TO_KINECT_MAP["ankleR"]][1]
+        footR_y = self.amass_joints[self.AMASS_TO_KINECT_MAP["ankleL"]][1]
+        base_foot=min(footL_y, footR_y)
+        # Joints with laban overrides (mapped by index in self.joints)
+        laban_override_map = {20: "torso",        # spineMid -> spineShoulder
+                                3: "head",          # neck -> head
+                                5: "left elbow",    # shoulderLeft -> elbowLeft
+                                6: "left wrist",    # elbowLeft -> wristLeft
+                                9: "right elbow",   # shoulderRight -> elbowRight
+                                10: "right wrist",  # elbowRight -> wristRight
+                                13: "left knee",    # hipLeft -> kneeLeft
+                                14: "left ankle",   # kneeLeft -> ankleLeft
+                                15: "left foot",    # ankleLeft -> footLeft
+                                17: "right knee",   # hipRight -> kneeRight
+                                18: "right ankle",  # kneeRight -> ankleRight
+                                19: "right foot",   # ankleRight -> footRight
+                            }
+        for i in [1,20]+list(range(2, 20)):
+            parent_idx = self.joints[i][3]
+            joint_name = self.joint_names_ordered[i]
+            amass_idx = self.AMASS_TO_KINECT_MAP[joint_name]
 
-        self.calc_joint(7, [0,0,0])                     # wristLeft->handLeft
-        self.calc_joint(8, [-4,-0.5,0])                 # spineShoulder->shoulderRight
+            if parent_idx == -1:
+                continue  # Skip root, already placed
 
-        vec = self.laban2vec(laban, "right elbow")      # shoulderRight->elbowRight
-        self.calc_joint(9,vec)
-
-        vec = self.laban2vec(laban, "right wrist")      # elbowRight->wristRight
-        self.calc_joint(10,vec)
-
-        self.calc_joint(11, [0,0,0])                    # wristLeft->handLeft
-        self.calc_joint(12, [1.5,-0, 0.5])              # spineBase->hipLeft
-        self.calc_joint(13, [0,-6,0])                   # hipLeft->kneeLeft
-        self.calc_joint(14, [0,-7,0])                   # kneeLeft->ankleLeft
-        self.calc_joint(15, [0.2,-0.2,3])               # ankleLeft->footLeft
-        self.calc_joint(16, [-1.5,-0, 0.5])             # spineBase->hipRight
-        self.calc_joint(17, [0,-6,0])                   # hipRight->kneeRight
-        self.calc_joint(18, [0,-7,0])                   # kneeRight->ankleRight
-        self.calc_joint(19, [-0.2,-0.2,3])              # ankleRight->footRight
-
+            parent_pos = self.joints[parent_idx][0:3]
+            
+            parent_name = self.joint_names_ordered[parent_idx]
+            parent_amass_idx = self.AMASS_TO_KINECT_MAP[parent_name]
+            
+            limb_relative = self.amass_joints[amass_idx] - self.amass_joints[parent_amass_idx]
+            if i in laban_override_map.keys():
+                joint_name_laban= laban_override_map[i]
+                limb_lenght=np.linalg.norm(limb_relative)
+                vec = self.laban2vec(laban, joint_name_laban, limb_lenght)
+                self.joints[i][0:3] = parent_pos + np.array(vec)
+            elif i in [7,11,21,22,23,24]:
+                
+                joint_name_laban= laban_override_map[parent_idx]
+                limb_lenght=np.linalg.norm(limb_relative)
+                vec = self.laban2vec(laban, joint_name_laban, limb_lenght)
+                self.joints[i][0:3] = parent_pos + np.array(vec)
+            else:
+               
+                self.joints[i][0:3] = parent_pos +  limb_relative
+            
+            
+        min_foot= min(self.joints[14][1], self.joints[18][1])
+        foot_offset=base_foot-min_foot
+        if laban[15].split(":")[1]=="Jump":
+            for joint in self.joints:
+                joint[1]+=self.scale*0.1
+        else:
+            for joint in self.joints:
+                joint[1]+=foot_offset
+           
     #------------------------------------------------------------------------------
     # calculate the given joint using its parent joint and a vector
     #
@@ -597,27 +740,39 @@ class graph3D:
 
     #------------------------------------------------------------------------------
     # convert the labanotation for a given limb to a vector
-    #
-    def laban2vec(self, laban, limb):
+    def laban2vec(self, laban, limb, limb_length=5):
         theta = 175
         phi = 0
         pi = 3.1415926
-        for i in range(0, len(laban)):
+        
+        support=False
+        for i in range(len(laban)):
             laban[i] = laban[i].lower()
-            tmp_str = laban[i].split(":")
-            if tmp_str[0]==limb:
-                lv = tmp_str[2]
-                if lv == "high":
+            tmp = laban[i].split(":")
+            if tmp[0] == limb:
+                if " o" in tmp[2]:
+                    support=True
+                dire = tmp[1]
+                level = tmp[2]  # remove support marker
+                if level == "high":
                     theta = 45
-                elif lv == "normal":
+                elif level == "normal":
                     theta = 90
-                elif lv == "low":
+                elif level == "low":
                     theta = 135
+                elif level == "high o":
+                    theta = 170
+                elif level == "normal o":
+                    theta = 135
+                elif level == "low o":
+                    theta = 90
+                # elif dire=="place" and not (i in [7,8]):
+                #     theta = 180 if "low" in level else 5 
                 else:
                     theta = 180
                     print('Unknown Level.')
                     
-                dire = tmp_str[1]
+                
                 if dire == "forward":
                     phi = 0
                 elif dire == "right forward":
@@ -634,29 +789,25 @@ class graph3D:
                     phi = 90
                 elif dire == "left forward":
                     phi = 45
-                elif dire == "place":
-                    if lv == "high":
-                        theta = 5
-                        phi = 0
-                    elif lv == "low":
-                        theta = 175
-                        phi = 0
-                    else:
-                        theta = 180
-                        phi = 0
-                        print('Unknown Place')
+                elif dire=="place":
+                    phi = 0
+                    if not (i in [7,8]):
+                        theta = 180 if "low" in level else 5 
                 else:
                     phi = 0
                     print('Unknown Direction.')
                 break
+        
+        y = limb_length * math.cos(math.radians(theta))
+        x = limb_length * math.sin(math.radians(theta)) * math.sin(math.radians(phi))
+        z = limb_length * math.sin(math.radians(theta)) * math.cos(math.radians(phi))
 
-        # length of the limb
-        l = 5
-        y = l * math.cos(theta/180.0*pi)
-        x = l * math.sin(theta/180.0*pi) * math.sin(phi/180.0*pi)
-        z = l * math.sin(theta/180.0*pi) * math.cos(phi/180.0*pi)
+        return [x, y, z]
 
-        return [x,y,z]
+
+
+
+
 
     #------------------------------------------------------------------------------
     #
@@ -690,6 +841,106 @@ class graph3D:
                 ha='center', va='bottom', color='w') 
         
         self.fig.canvas.draw_idle()
+
+
+    def calculate_ecm(self, keyframes):
+        
+        original_joints=np.zeros((len(keyframes),25, 3))
+        laban_joints=original_joints.copy()
+        
+        for i, idx in enumerate(keyframes):
+            
+            temp=self.jointFrames[idx][0]
+             # scale, spine_shoulder->spine_midlle is 5
+            d0 = temp[22][0]-temp[3][0]
+            d1 = temp[22][1]-temp[3][1]
+            d2 = temp[22][2]-temp[3][2]
+
+            # d = (d0**2+d1**2+d2**2)**0.5
+
+            # scale = (3.0 / d)
+
+            for k in range(0, 25):
+                original_joints[i,k,0] = temp[k+2][0]#*scale
+                original_joints[i,k,1] = temp[k+2][1]#*scale
+                original_joints[i,k,2] = -temp[k+2][2]#*scale
+            laban = self.all_laban[idx]
+
+            curr_laban =  [
+                        'Start Time:' + str(0),
+                        'Duration:0',
+                    # Staff-aligned ordering
+                    'Left Elbow:' + laban[0][0] + ':' + laban[0][1],
+                    'Left Wrist:' + laban[1][0] + ':' + laban[1][1],
+                    'Torso:' + laban[2][0] + ':' + laban[2][1],
+                    'Left Ankle:' + laban[3][0] + ':' + laban[3][1],
+                    'Left Foot:' + laban[4][0] + ':' + laban[4][1],
+                    'Left Knee:' + laban[5][0] + ':' + laban[5][1],
+                    'Right Knee:' + laban[6][0] + ':' + laban[6][1],
+                    'Right Foot:' + laban[7][0] + ':' + laban[7][1],
+                    'Right Ankle:' + laban[8][0] + ':' + laban[8][1],
+                    'Torso_Repeat:' + laban[9][0] + ':' + laban[9][1],
+                    'Right Wrist:' + laban[10][0] + ':' + laban[10][1],
+                    'Right Elbow:' + laban[11][0] + ':' + laban[11][1],
+                    'Head:' + laban[12][0] + ':' + laban[12][1],
+                    'Support:' + laban[13][1],
+                    'Rotation:ToLeft:' + str(laban[14])
+                ]
+
+            # take a kinect snapshot of joints in time and render them.
+            # Map to graph's xyz space
+            self.mapLabanotation2Joints(curr_laban)
+            laban_joints[i]=np.array(self.joints)[:,:3]
+            
+        
+       
+        original = np.array(original_joints)
+        laban_joints/=self.scale
+        
+        # Promediado sobre frames y ejes (x,y,z)
+        mse_per_joint = np.mean((original - laban_joints)[:,:21] ** 2, axis=(0, 2)) 
+        print(mse_per_joint)
+        
+        
+        def plot_skeletons(original_joints, laban_joints, parents):
+            fig = plt.figure(figsize=(12, 6))
+            
+            # Left: Original
+            ax1 = fig.add_subplot(121, projection='3d')
+            ax1.set_title("Original Skeleton (Keyframe 0)")
+            plot_skeleton(ax1, original_joints, parents, color='blue')
+
+            # Right: Reconstructed
+            ax2 = fig.add_subplot(122, projection='3d')
+            ax2.set_title("Laban Reconstruction (Keyframe 0)")
+            plot_skeleton(ax2, laban_joints, parents, color='green')
+
+            plt.tight_layout()
+            plt.show()
+
+        def plot_skeleton(ax, joints, parents, color='blue'):
+            ax.scatter(joints[:, 0], joints[:, 1], joints[:, 2], color=color, s=30)
+            for i in range(len(joints)):
+                p = parents[i]
+                if p == -1:
+                    continue
+                x = [joints[i][0], joints[p][0]]
+                y = [joints[i][1], joints[p][1]]
+                z = [joints[i][2], joints[p][2]]
+                ax.plot(x, y, z, color=color, linewidth=2)
+            ax.set_xlim(-20, 20)
+            ax.set_ylim(-20, 20)
+            ax.set_zlim(-20, 20)
+            ax.set_xlabel("X")
+            ax.set_ylabel("Y")
+            ax.set_zlabel("Z")
+            ax.view_init(elev=15, azim=-70)
+        
+        # Assume you're using the same skeleton definition for both
+        parents = [j[3] for j in self.joints[:21]]
+        plot_skeletons(original_joints[2,:21,:], laban_joints[2,:21,:], parents)
+
+        return mse_per_joint, laban_joints  
 
     #------------------------------------------------------------------------------
     #

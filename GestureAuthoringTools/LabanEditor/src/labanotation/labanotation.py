@@ -14,6 +14,7 @@ from . import labanVisualization
 class labanotation:
     all_laban = []
     timeS = None
+    keyframe_idx=[]
     algorithm = None
     idEventC = None
     idEventR = None

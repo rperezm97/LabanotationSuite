@@ -129,70 +129,8 @@ class graph3D:
         self.joints.append([0,0,0,11])  # handTipRight, #23
         self.joints.append([0,0,0,10])  # thumbTipRight, #24
         
-        # Importing teh T-model and centering its root on 0 to start
-        support_dir = Path(filePath).resolve().parents[4]  # Adjust for correct model path
-        model_path = os.path.join(support_dir, 'body_models/smplh/male/model.npz')
+        self.load_SMPL_skeleton(filePath)
         
-        # Load SMPLH body model
-        bm = BodyModel(bm_fname=model_path, num_betas=16).to('cpu')
-
-        # T-pose: zero pose and zero shape
-        body_pose = torch.zeros((1, 63))  # (1, 63)
-        betas = torch.zeros((1, 16))
-        trans = torch.zeros((1, 3))
-
-        # Output: joints and mesh
-        out = bm.forward(body_pose=body_pose, betas=betas, transl=trans)
-
-        # Canonical joint positions in T-pose (shape: [1, 52, 3])
-        self.amass_joints = out.Jtr[0].detach().cpu().numpy()
-        # self.amass_joints[:,  [1, 2]] = self.amass_joints[:,  [2, 1]]  # Y ↔ Z
-        
-        move = self.amass_joints[0]
-        self.amass_joints-=move
-        
-        # scale, spine_shoulder->spine_midlle is 5
-        d = np.linalg.norm(self.amass_joints[3]-self.amass_joints[6])
-        self.scale = (3.0 / d)
-        self.amass_joints*=self.scale
-        
-        self.AMASS_TO_KINECT_MAP = {
-            "spineB": 0, "spineM": 3,
-            "neck": 12, "head": 15,
-            "shoulderL": 16, "elbowL": 18, "wristL": 20, "handL": 25,
-            "shoulderR": 17, "elbowR": 19, "wristR": 21, "handR": 41,
-            "hipL": 1, "kneeL": 4, "ankleL": 7, "footL": 10,
-            "hipR": 2, "kneeR": 5, "ankleR": 8, "footR": 11,
-            "spineS": 6,"handTL": 34, "thumbL": 35, "handTR": 49, "thumbR": 50
-            }
-
-        self.skeleton_connections = [
-            ('spineB', 'spineM'), ('spineM', 'spineS'), ('spineS', 'neck'), ('neck', 'head'),
-            ('spineS', 'shoulderL'), ('shoulderL', 'elbowL'), ('elbowL', 'wristL'), ('wristL', 'handL'),
-            ('spineS', 'shoulderR'), ('shoulderR', 'elbowR'), ('elbowR', 'wristR'), ('wristR', 'handR'),
-            ('spineB', 'hipL'), ('hipL', 'kneeL'), ('kneeL', 'ankleL'), ('ankleL', 'footL'),
-            ('spineB', 'hipR'), ('hipR', 'kneeR'), ('kneeR', 'ankleR'), ('ankleR', 'footR')
-        ]
-
-        # Ordered joint names for drawing: index is your internal joint ID
-        self.joint_names_ordered = [
-            'spineB', 'spineM', 'neck', 'head',
-            'shoulderL', 'elbowL', 'wristL', 'handL',
-            'shoulderR', 'elbowR', 'wristR', 'handR',
-            'hipL', 'kneeL', 'ankleL', 'footL',
-            'hipR', 'kneeR', 'ankleR', 'footR', 'spineS'
-        
-        ]
-        self.name_to_index = {name: i for i, name in enumerate(self.joint_names_ordered)}
-
-        # Get parent index per joint using the connections
-        self.parents = [-1] * len(self.joint_names_ordered)
-        for parent, child in self.skeleton_connections:
-            child_idx = self.name_to_index[child]
-            parent_idx = self.name_to_index[parent]
-            self.parents[child_idx] = parent_idx
-
-
     # -----------------------------------------------------------------------------
     # canvas close event
     #
@@ -508,6 +446,7 @@ class graph3D:
         self.ax.zaxis.set_major_formatter(plt.NullFormatter())
 
     #------------------------------------------------------------------------------
+    
     #
     #   rotate around x axis:   rotate around y axis:   rotates around
     #    np.array([              np.array([              np.array([
@@ -585,9 +524,9 @@ class graph3D:
     #------------------------------------------------------------------------------
     #
     def draw_limbs(self):
-        for i in range(1, len(self.joints) - 4):
-            if (i == 7) or (i == 11): # do not draw hands
-                continue
+        for i in range(1, len(self.joints)): #- 4):
+            # if (i == 7) or (i == 11): # do not draw hands
+            #     continue
 
             if (i==4) or (i==5) or (i==6) or (i==8) or (i==9) or (i==10):
                 alpha = 1.0
@@ -674,8 +613,8 @@ class graph3D:
         root_amass_idx = self.AMASS_TO_KINECT_MAP[root_name]
         self.joints[0][0:3] = self.amass_joints[root_amass_idx]
         
-        footL_y = self.amass_joints[self.AMASS_TO_KINECT_MAP["ankleR"]][1]
-        footR_y = self.amass_joints[self.AMASS_TO_KINECT_MAP["ankleL"]][1]
+        footL_y = self.amass_joints[self.AMASS_TO_KINECT_MAP["footR"]][1]
+        footR_y = self.amass_joints[self.AMASS_TO_KINECT_MAP["footL"]][1]
         base_foot=min(footL_y, footR_y)
         # Joints with laban overrides (mapped by index in self.joints)
         laban_override_map = {20: "torso",        # spineMid -> spineShoulder
@@ -691,7 +630,7 @@ class graph3D:
                                 18: "right ankle",  # kneeRight -> ankleRight
                                 19: "right foot",   # ankleRight -> footRight
                             }
-        for i in [1,20]+list(range(2, 20)):
+        for i in [1,20]+list(range(2, 20))+list(range(21,25)):
             parent_idx = self.joints[i][3]
             joint_name = self.joint_names_ordered[i]
             amass_idx = self.AMASS_TO_KINECT_MAP[joint_name]
@@ -704,28 +643,57 @@ class graph3D:
             parent_name = self.joint_names_ordered[parent_idx]
             parent_amass_idx = self.AMASS_TO_KINECT_MAP[parent_name]
             
-            limb_relative = self.amass_joints[amass_idx] - self.amass_joints[parent_amass_idx]
+            limb_relative_amass = self.amass_joints[amass_idx] - self.amass_joints[parent_amass_idx]
+            limb_length=np.linalg.norm(limb_relative_amass)
+            
             if i in laban_override_map.keys():
                 joint_name_laban= laban_override_map[i]
-                limb_lenght=np.linalg.norm(limb_relative)
-                vec = self.laban2vec(laban, joint_name_laban, limb_lenght)
-                self.joints[i][0:3] = parent_pos + np.array(vec)
-            elif i in [7,11,21,22,23,24]:
-                
-                joint_name_laban= laban_override_map[parent_idx]
-                limb_lenght=np.linalg.norm(limb_relative)
-                vec = self.laban2vec(laban, joint_name_laban, limb_lenght)
-                self.joints[i][0:3] = parent_pos + np.array(vec)
+                laban_vec = self.laban2vec(laban, joint_name_laban, limb_length)
+                self.joints[i][0:3] = parent_pos + np.array(laban_vec)
             else:
-               
-                self.joints[i][0:3] = parent_pos +  limb_relative
+                
+                # Get  the AMASS-relative vector but rotate
+                # it to align with the current transformed skeleton,
+                grandparent_idx=self.joints[parent_idx][3]
+                if grandparent_idx==-1:
+                    self.joints[i][0:3] = parent_pos + limb_relative_amass
+                    continue
+                
+                grandparent_name = self.joint_names_ordered[grandparent_idx]
+                grandparent_amass_idx = self.AMASS_TO_KINECT_MAP[grandparent_name]
+                
+                amass_vec= self.amass_joints[parent_amass_idx] - self.amass_joints[grandparent_amass_idx]
+
+                orient_vector=np.array(parent_pos)-np.array(self.joints[grandparent_idx][0:3])
+                
+                # Normalize
+                a = amass_vec / np.linalg.norm(amass_vec)
+                b = orient_vector / np.linalg.norm(orient_vector)
+
+                # Axis-angle to rotate a into b
+                v = np.cross(a, b)
+                c = np.dot(a, b)
+                s = np.linalg.norm(v)
+                if s != 0:
+                    vx = np.array([
+                        [0, -v[2], v[1]],
+                        [v[2], 0, -v[0]],
+                        [-v[1], v[0], 0]
+                    ])
+                    R_mat = np.eye(3) + vx + vx @ vx * ((1 - c) / (s ** 2))
+                else:
+                    R_mat = np.eye(3)
+                
+                rotated_child_vec = R_mat @ limb_relative_amass
+                self.joints[i][0:3] = parent_pos + rotated_child_vec
             
             
-        min_foot= min(self.joints[14][1], self.joints[18][1])
+        min_foot= min(self.joints[15][1], self.joints[19][1])
         foot_offset=base_foot-min_foot
         if laban[15].split(":")[1]=="Jump":
             for joint in self.joints:
                 joint[1]+=self.scale*0.1
+                
         else:
             for joint in self.joints:
                 joint[1]+=foot_offset
@@ -740,69 +708,77 @@ class graph3D:
 
     #------------------------------------------------------------------------------
     # convert the labanotation for a given limb to a vector
+ 
+
     def laban2vec(self, laban, limb, limb_length=5):
-        theta = 175
+        theta = 180
         phi = 0
-        pi = 3.1415926
-        
-        support=False
-        for i in range(len(laban)):
-            laban[i] = laban[i].lower()
-            tmp = laban[i].split(":")
-            if tmp[0] == limb:
-                if " o" in tmp[2]:
-                    support=True
-                dire = tmp[1]
-                level = tmp[2]  # remove support marker
-                if level == "high":
-                    theta = 45
-                elif level == "normal":
-                    theta = 90
-                elif level == "low":
-                    theta = 135
-                elif level == "high o":
-                    theta = 170
-                elif level == "normal o":
-                    theta = 135
-                elif level == "low o":
-                    theta = 90
-                # elif dire=="place" and not (i in [7,8]):
-                #     theta = 180 if "low" in level else 5 
-                else:
-                    theta = 180
-                    print('Unknown Level.')
-                    
-                
-                if dire == "forward":
-                    phi = 0
-                elif dire == "right forward":
-                    phi = -45
-                elif dire == "right":
-                    phi = -90
-                elif dire == "right backward":
-                    phi = -135
-                elif dire == "backward":
-                    phi = 180
-                elif dire == "left backward":
-                    phi = 135
-                elif dire == "left":
-                    phi = 90
-                elif dire == "left forward":
-                    phi = 45
-                elif dire=="place":
-                    phi = 0
-                    if not (i in [7,8]):
-                        theta = 180 if "low" in level else 5 
-                else:
-                    phi = 0
-                    print('Unknown Direction.')
+        support = False
+
+        # Normalize input
+        laban = [entry.lower() for entry in laban]
+
+        for i, entry in enumerate(laban):
+            parts = entry.split(":")
+            if parts[0] == limb:
                 break
+
+        direction = parts[1]
+        level = parts[2].strip()
+
+
+        # ----- Theta Mapping -----
         
+        # Support-specific thresholds (inverted: lower theta = higher)
+        if level == "low o":
+            theta = 90
+        elif level == "normal o":
+            theta = 120
+        elif level == "high o":
+            theta = 170
+        elif level== "high":
+            theta = 45
+        elif level == "normal":
+            theta = 90
+        elif level == "low":
+            theta = 135
+        else:
+            print(f"Unknown level: {level}")
+            theta = 135
+
+        # ----- Direction Mapping -----
+        if direction == "forward":
+            phi = 0
+        elif direction == "left forward":
+            phi = 45
+        elif direction == "left":
+            phi = 90
+        elif direction == "left backward":
+            phi = 135
+        elif direction == "backward":
+            phi = 180
+        elif direction == "right backward":
+            phi = -135
+        elif direction == "right":
+            phi = -90
+        elif direction == "right forward":
+            phi = -45
+        elif direction=="place":
+                phi = 0
+                if not (i in [7,8]):
+                    theta = 180 if "low" in level else 5 
+        else:
+            print(f"Unknown direction: {direction}")
+            phi = 0
+
+          
+        # Convert to 3D coordinates
         y = limb_length * math.cos(math.radians(theta))
         x = limb_length * math.sin(math.radians(theta)) * math.sin(math.radians(phi))
         z = limb_length * math.sin(math.radians(theta)) * math.cos(math.radians(phi))
 
         return [x, y, z]
+
 
 
 
@@ -841,6 +817,78 @@ class graph3D:
                 ha='center', va='bottom', color='w') 
         
         self.fig.canvas.draw_idle()
+
+    
+    
+    #---------------------------------------------------------------------
+
+    
+    
+    def load_SMPL_skeleton(self, filePath):
+        # Importing teh T-model and centering its root on 0 to start
+        support_dir = Path(filePath).resolve().parents[1]  # Adjust for correct model path
+        model_path = os.path.join(support_dir, 'amass/body_models/smplh/male/model.npz')
+        
+        # Load SMPLH body model
+        bm = BodyModel(bm_fname=model_path, num_betas=16).to('cpu')
+
+        # T-pose: zero pose and zero shape
+        body_pose = torch.zeros((1, 63))  # (1, 63)
+        betas = torch.zeros((1, 16))
+        trans = torch.zeros((1, 3))
+
+        # Output: joints and mesh
+        out = bm.forward(body_pose=body_pose, betas=betas, transl=trans)
+
+        # Canonical joint positions in T-pose (shape: [1, 52, 3])
+        self.amass_joints = out.Jtr[0].detach().cpu().numpy()
+        # self.amass_joints[:,  [1, 2]] = self.amass_joints[:,  [2, 1]]  # Y ↔ Z
+        
+        move = self.amass_joints[0]
+        self.amass_joints-=move
+        
+        # scale, spine_shoulder->spine_midlle is 5
+        d = np.linalg.norm(self.amass_joints[3]-self.amass_joints[6])
+        self.scale = (3.0 / d)
+        self.amass_joints*=self.scale
+        
+        self.AMASS_TO_KINECT_MAP = {
+            "spineB": 0, "spineM": 3,
+            "neck": 12, "head": 15,
+            "shoulderL": 16, "elbowL": 18, "wristL": 20, "handL": 25,
+            "shoulderR": 17, "elbowR": 19, "wristR": 21, "handR": 41,
+            "hipL": 1, "kneeL": 4, "ankleL": 7, "footL": 10,
+            "hipR": 2, "kneeR": 5, "ankleR": 8, "footR": 11,
+            "spineS": 6,"handTL": 34, "thumbL": 35, "handTR": 49, "thumbR": 50
+            }
+
+        self.skeleton_connections = [
+            ('spineB', 'spineM'), ('spineM', 'spineS'), ('spineS', 'neck'), ('neck', 'head'),
+            ('spineS', 'shoulderL'), ('shoulderL', 'elbowL'), ('elbowL', 'wristL'), ('wristL', 'handL'),
+            ('spineS', 'shoulderR'), ('shoulderR', 'elbowR'), ('elbowR', 'wristR'), ('wristR', 'handR'),
+            ('spineB', 'hipL'), ('hipL', 'kneeL'), ('kneeL', 'ankleL'), ('ankleL', 'footL'),
+            ('spineB', 'hipR'), ('hipR', 'kneeR'), ('kneeR', 'ankleR'), ('ankleR', 'footR')
+        ]
+
+        # Ordered joint names for drawing: index is your internal joint ID
+        self.joint_names_ordered = [
+                            'spineB', 'spineM',     # meter
+                            'neck', 'head',
+                            'shoulderL', 'elbowL', 'wristL', 'handL', # tracked=2, inferred=1, nottracked=0
+                            'shoulderR', 'elbowR', 'wristR', 'handR',
+                            'hipL', 'kneeL', 'ankleL', 'footL',
+                            'hipR', 'kneeR', 'ankleR', 'footR',
+                            'spineS', 'handTL', 'thumbL', 'handTR', 'thumbR'
+        
+        ]
+        self.name_to_index = {name: i for i, name in enumerate(self.joint_names_ordered)}
+
+        # Get parent index per joint using the connections
+        self.parents = [-1] * len(self.joint_names_ordered)
+        for parent, child in self.skeleton_connections:
+            child_idx = self.name_to_index[child]
+            parent_idx = self.name_to_index[parent]
+            self.parents[child_idx] = parent_idx
 
 
     def calculate_ecm(self, keyframes):
@@ -898,47 +946,50 @@ class graph3D:
         laban_joints/=self.scale
         
         # Promediado sobre frames y ejes (x,y,z)
-        mse_per_joint = np.mean((original - laban_joints)[:,:21] ** 2, axis=(0, 2)) 
-        print(mse_per_joint)
+        mse_per_joint = np.around(np.mean((original - laban_joints) ** 2, axis=(0, 2)) ,
+                                  3)
+        print("MSE per joint")
+        for joint, error in zip(self.joint_names_ordered, mse_per_joint):
+            print(joint, " : ", error) 
+        print("Total MSE:", np.mean(mse_per_joint))
         
-        
-        def plot_skeletons(original_joints, laban_joints, parents):
-            fig = plt.figure(figsize=(12, 6))
+        # def plot_skeletons(original_joints, laban_joints, parents):
+        #     fig = plt.figure(figsize=(12, 6))
             
-            # Left: Original
-            ax1 = fig.add_subplot(121, projection='3d')
-            ax1.set_title("Original Skeleton (Keyframe 0)")
-            plot_skeleton(ax1, original_joints, parents, color='blue')
+        #     # Left: Original
+        #     ax1 = fig.add_subplot(121, projection='3d')
+        #     ax1.set_title("Original Skeleton (Keyframe 0)")
+        #     plot_skeleton(ax1, original_joints, parents, color='blue')
 
-            # Right: Reconstructed
-            ax2 = fig.add_subplot(122, projection='3d')
-            ax2.set_title("Laban Reconstruction (Keyframe 0)")
-            plot_skeleton(ax2, laban_joints, parents, color='green')
+        #     # Right: Reconstructed
+        #     ax2 = fig.add_subplot(122, projection='3d')
+        #     ax2.set_title("Laban Reconstruction (Keyframe 0)")
+        #     plot_skeleton(ax2, laban_joints, parents, color='green')
 
-            plt.tight_layout()
-            plt.show()
+        #     plt.tight_layout()
+        #     plt.show()
 
-        def plot_skeleton(ax, joints, parents, color='blue'):
-            ax.scatter(joints[:, 0], joints[:, 1], joints[:, 2], color=color, s=30)
-            for i in range(len(joints)):
-                p = parents[i]
-                if p == -1:
-                    continue
-                x = [joints[i][0], joints[p][0]]
-                y = [joints[i][1], joints[p][1]]
-                z = [joints[i][2], joints[p][2]]
-                ax.plot(x, y, z, color=color, linewidth=2)
-            ax.set_xlim(-20, 20)
-            ax.set_ylim(-20, 20)
-            ax.set_zlim(-20, 20)
-            ax.set_xlabel("X")
-            ax.set_ylabel("Y")
-            ax.set_zlabel("Z")
-            ax.view_init(elev=15, azim=-70)
+        # def plot_skeleton(ax, joints, parents, color='blue'):
+        #     ax.scatter(joints[:, 0], joints[:, 1], joints[:, 2], color=color, s=30)
+        #     for i in range(len(joints)):
+        #         p = parents[i]
+        #         if p == -1:
+        #             continue
+        #         x = [joints[i][0], joints[p][0]]
+        #         y = [joints[i][1], joints[p][1]]
+        #         z = [joints[i][2], joints[p][2]]
+        #         ax.plot(x, y, z, color=color, linewidth=2)
+        #     ax.set_xlim(-20, 20)
+        #     ax.set_ylim(-20, 20)
+        #     ax.set_zlim(-20, 20)
+        #     ax.set_xlabel("X")
+        #     ax.set_ylabel("Y")
+        #     ax.set_zlabel("Z")
+        #     ax.view_init(elev=15, azim=-70)
         
         # Assume you're using the same skeleton definition for both
-        parents = [j[3] for j in self.joints[:21]]
-        plot_skeletons(original_joints[2,:21,:], laban_joints[2,:21,:], parents)
+        # parents = [j[3] for j in self.joints]
+        # plot_skeletons(original_joints[2,:,:]*self.scale, laban_joints[2,:,:]*self.scale, parents)
 
         return mse_per_joint, laban_joints  
 

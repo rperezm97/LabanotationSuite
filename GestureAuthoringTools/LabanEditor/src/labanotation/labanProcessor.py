@@ -356,7 +356,8 @@ def coordinate2laban(theta, phi, joint_type, support_data=None, support=True):
     return laban
 
 
-def detect_weight_support(jointFrames, i, base_translation_partial, base_rotation_partial, base_foot, STEP_THRESHOLD=0.01, JUMP_THRESHOLD=0.01, ROTATION_THRESHOLD=15):
+def detect_weight_support(jointFrames, i, base_translation_partial, base_rotation_partial, base_foot, 
+                        STEP_THRESHOLD=0.01, JUMP_THRESHOLD=0.1, ROTATION_THRESHOLD=15):
     """
     Determines weight support by analyzing global translation and rotation.
 
@@ -365,81 +366,87 @@ def detect_weight_support(jointFrames, i, base_translation_partial, base_rotatio
         i (int): Current frame index.
         base_translation_partial (np.array): Previous frame’s global translation.
         base_rotation_partial (np.array): Previous frame’s global rotation.
+        base_foot (float): Reference foot Y-level.
         STEP_THRESHOLD (float): Distance threshold to detect stepping.
         JUMP_THRESHOLD (float): Height threshold to detect jumping.
         ROTATION_THRESHOLD (float): Angle threshold to detect turns.
 
     Returns:
-        dict: {'support': 'One Foot'/'Both Feet'/'Airborne'/'Other', 'step': True/False, 'jump': True/False, 'turn': True/False}
+        tuple: (support_type, rotation, base_translation_partial, base_rotation_partial)
     """
-    if i==120:
-        print("here")
-    delta_T = np.linalg.norm(jointFrames[i]["T"][0] - base_translation_partial)  # Translation change
-    delta_R = jointFrames[i]["R"][0][2] - base_rotation_partial[2]  # Rotation change
-    vertical_move = jointFrames[i]["T"][0][1] - base_translation_partial[1]  # Vertical movement (Y-axis)
-    side_move= jointFrames[i]["T"][0][0] - base_translation_partial[0]
-    depth_move= jointFrames[i]["T"][0][2] - base_translation_partial[2]
-    support_type = [  "Place","Stand","Both",]
     
-    # **Check if weight is on one or both feet**
+    delta_pos = jointFrames[i]["T"][0] - base_translation_partial
+    delta_R = jointFrames[i]["R"][0][2] - base_rotation_partial[2]  # yaw only (Z)
+    vertical_move = delta_pos[1]
+    side_move = delta_pos[0]  # X-axis
+    depth_move = delta_pos[2]  # Z-axis
+
+    support_type = ["Place", "Stand", "Both"]
+
+    # --- Direction classification (XZ plane movement) ---
+    if depth_move > STEP_THRESHOLD / 2:
+        if side_move > STEP_THRESHOLD / 2:
+            support_type[0] = "Right Forward"
+        elif side_move < -STEP_THRESHOLD / 2:
+            support_type[0] = "Left Forward"
+        else:
+            support_type[0] = "Forward"
+    elif depth_move < -STEP_THRESHOLD / 2:
+        if side_move > STEP_THRESHOLD / 2:
+            support_type[0] = "Right Backward"
+        elif side_move < -STEP_THRESHOLD / 2:
+            support_type[0] = "Left Backward"
+        else:
+            support_type[0] = "Backward"
+    elif side_move > STEP_THRESHOLD / 2:
+        support_type[0] = "Right"
+    elif side_move < -STEP_THRESHOLD / 2:
+        support_type[0] = "Left"
+    else:
+        support_type[0] = "Place"
+
+    # --- Foot contact detection ---
     footL_y = jointFrames[i]["footL"][0][1]
     footR_y = jointFrames[i]["footR"][0][1]
-    ground_contact_L = abs(footL_y-base_foot) < 0.05  # Close to ground
-    ground_contact_R = abs(footR_y-base_foot) < 0.05
-    
+    ground_contact_L = abs(footL_y - base_foot) < 0.1
+    ground_contact_R = abs(footR_y - base_foot) < 0.1
 
-    if depth_move>STEP_THRESHOLD/2:
-            if side_move>STEP_THRESHOLD/2:  
-                support_type[0]= "Right Forward"
-            elif side_move<-STEP_THRESHOLD/2:
-                support_type[0]= "Left Forward"
-            else:
-                support_type[0]= "Forward"
-    elif depth_move<-STEP_THRESHOLD/2:
-        if side_move>STEP_THRESHOLD/2:  
-            support_type[0]= "Right Backward"
-        elif side_move<-STEP_THRESHOLD/2:
-            support_type[0]=  "Left Backward"
-        else:
-            support_type[0]= "Backward"
-    elif side_move<-STEP_THRESHOLD/2:
-        support_type[0]=  "Left"
-    elif side_move>STEP_THRESHOLD/2:
-        support_type[0]=  "Right"
-    else:
-        support_type[0]=  "Place"
-    
+    # --- Support logic ---
     if not ground_contact_L and not ground_contact_R:
-        support_type[1]= "Jump"
-        if not ground_contact_L and ground_contact_R:
-            support_type[2]= "Right"
-        elif not ground_contact_R and ground_contact_L:
-            support_type[2]= "Left"
-        else:
-             support_type[2]= "Both"
-        
+        support_type[1] = "Jump"
+        support_type[2] = "Both"  # airborne
+        base_translation_partial += np.array([0.0, JUMP_THRESHOLD, 0.0])
     elif vertical_move < -JUMP_THRESHOLD:
-        support_type[1]= "Squat"
-        
-        support_type[2]= "Both"
-        
+        support_type[1] = "Squat"
+        support_type[2] = "Both"
     elif ground_contact_L and not ground_contact_R:
-            support_type [2]= "Left"
+        support_type[2] = "Left"
     elif ground_contact_R and not ground_contact_L:
-            support_type [2]= "Right"
-  
-    angle_rot=min(np.rad2deg(delta_R), 360-np.rad2deg(delta_R) )// ROTATION_THRESHOLD 
-    
-    rotation=0.0
-    if abs(angle_rot)>0:  # Convert degrees to radians
-        rotation=angle_rot*ROTATION_THRESHOLD
-        if i>10:
-            if np.linalg.norm(jointFrames[i-10]["R"][0] - jointFrames[i]["R"][0])<=0.05:
-                base_rotation_partial = jointFrames[i]["R"][0]
-        
+        support_type[2] = "Right"
+    else:
+        support_type[2] = "Both"
+
+    # --- Step: if significant movement in XZ plane ---
+    step_occurred = np.linalg.norm([side_move, depth_move]) > STEP_THRESHOLD
+    if step_occurred:
+        step_vector = np.array([
+            STEP_THRESHOLD if side_move > STEP_THRESHOLD / 2 else -STEP_THRESHOLD if side_move < -STEP_THRESHOLD / 2 else 0,
+            0,
+            STEP_THRESHOLD if depth_move > STEP_THRESHOLD / 2 else -STEP_THRESHOLD if depth_move < -STEP_THRESHOLD / 2 else 0
+        ])
+        base_translation_partial += step_vector
+
+    # --- Turn detection ---
+    delta_yaw_deg = np.rad2deg(delta_R)
+    delta_yaw_deg = (delta_yaw_deg + 180) % 360 - 180  # wrap to [-180, 180]
+    rotation = 0.0
+
+    if abs(delta_yaw_deg) > ROTATION_THRESHOLD:
+        rotation = np.sign(delta_yaw_deg) * ROTATION_THRESHOLD
+        base_rotation_partial[2] += np.deg2rad(rotation)
+        base_rotation_partial[2] = (base_rotation_partial[2] + np.pi) % (2 * np.pi) - np.pi  # wrap to [-pi, pi]
 
     return support_type, rotation, base_translation_partial, base_rotation_partial
-
 
 
 #------------------------------------------------------------------------------

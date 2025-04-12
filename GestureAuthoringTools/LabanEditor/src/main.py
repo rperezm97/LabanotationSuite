@@ -22,6 +22,8 @@ except ImportError:
 import settings
 
 import kinect as kinect
+import amass2kinect 
+#import mediapipe2kinect
 
 import guiMenu.guiMenu as guiMenu
 import graphSkeleton.graphSkeleton as graphSkeleton
@@ -97,13 +99,14 @@ class application:
     # parse command line arguments
     #
     def parseArguments(self):
-        parser = argparse.ArgumentParser(description='Kinect .csv to Labanotation .json gesture keyframe extractor.')
+        parser = argparse.ArgumentParser(description='Kinect/Amass/Medipipe to Labanotation .json and SMPL gesture keyframe extractor.')
 
         parser.add_argument('--algorithm', default='total', choices=['total', 'parallel', 'naive'], help='select the Laban key frame extraction algorithm: "total" total energy, "parallel" parallel energy, "naive" treat each Kinect frame as a keyframe')
         parser.add_argument('--base-rotation-style', default='every',
                             choices=['every', 'first'], help='select the base rotation style. "every": update base rotation every frame. "first": use the base rotation of the first frame.')
-        parser.add_argument('--inputfile', default="0018_TraditionalChineseDance001", help='Data input file')
-        parser.add_argument('--kinect', default=False, help='process it as amass data. If false, process as kinect/mediapipe')
+        parser.add_argument('--inputfile', default="jump", help='Data input file')
+        parser.add_argument('--inputType', default="amass",
+                            choices=['kinect', 'amass', 'mediapipe'], help='process input as kinect, amass or mediapipe data.')
         parser.add_argument('--nogui', action='store_true', default=False, help='process Kinect data but don\'t display interactive GUI')
         parser.add_argument('--outputfolder', help='output folder; if not specified, output folder is .\\data_output')
         parser.add_argument('--screenwidth', default=1920, help='overwrite default screen width')
@@ -111,7 +114,7 @@ class application:
         
         cmdArgs = parser.parse_args()
 
-        self.kinect=cmdArgs.kinect
+        self.inputType=cmdArgs.inputType
         if (cmdArgs.inputfile == None):
             print('No inputfile was specified.')
             exit()
@@ -140,11 +143,11 @@ class application:
         
         file_extension = os.path.splitext(self.inputName)[1]
         # ✅ Handle CSV input files (Kinect Data)
-        if self.kinect:
+        if self.inputType=="kinect":
             if os.path.isabs(self.inputName):
                 self.inputFilePath = self.inputName
             else:
-                self.inputFilePath = os.path.join(settings.cwd, 'data_input', self.inputName)
+                self.inputFilePath = os.path.join(settings.cwd, 'data_input/kinect', self.inputName)
 
             # Ensure file has a .csv extension
             if file_extension == '':
@@ -154,13 +157,14 @@ class application:
             self.inputName = os.path.splitext(self.inputName)[0]
 
         # ✅ Handle PT input files (AMASS Dataset)
+        elif self.inputType=="amass":
+            self.inputFilePath = os.path.join(settings.cwd, 'data_input/amass', 
+                                              f"{self.inputName}.pt")
+        elif self.inputType=="mediapipe":
+            self.inputFilePath = os.path.join(settings.cwd, 'data_input/mediapipe', 
+                                              f"{self.inputName}.webm")
         else:
-            work_dir=os.path.join(settings.cwd,"amass/support_data/prepared_data/VXX_SVXX_TXX")
-            subject_id = self.inputName
-            dataset_dir = os.path.join(work_dir, 'stage_III', 'vald')
-            print(dataset_dir)
-            self.inputFilePath = os.path.join(dataset_dir, f"{subject_id}_dataset.pt")
-
+            raise TypeError("inputType not recognized")
         # ✅ Determine Output File Paths
         self.outputName = self.inputName
 
@@ -252,11 +256,14 @@ class application:
         self.logMessage('Reading input data file ' + self.strBeautifiedInputFile)
         file_extension = os.path.splitext(self.strBeautifiedInputFile)[1]
         print(file_extension)
-        if self.kinect:
+        if self.inputType=="kinect":
             self.jointFrames = kinect.loadKinectDataFile(self.inputFilePath, True)
+        elif self.inputType=="amass":
+            self.jointFrames= amass2kinect.loadAMASSData(self.inputFilePath) 
+        elif self.inputType=="mediapipe":
+            pass#self.jointFrames= mediapipe2kinect.loadAMASSData(self.inputFilePath)
         else:
-            self.jointFrames, self.joint_lenghts= kinect.loadAMASSData(self.inputFilePath) 
-            
+            raise TypeError("inputType not recognized")
         self.logMessage('Loaded ' + str(len(self.jointFrames)) + ' Kinect data frames.')
         if (len(self.jointFrames) < 1):
             self.logMessage('No Kinect data frames to process.')

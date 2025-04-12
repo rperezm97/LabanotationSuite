@@ -236,9 +236,10 @@ class Algorithm:
             
             lp.coordinate2laban(head[i][1], head[i][2], 'head'),
             support_type,
-            rotation
+            rotation, 
+            base_translation_partial, base_rotation_partial
             ])
-
+        
     #------------------------------------------------------------------------------
     # apply total energy algoritm to joint data frames and calculate labanotation
     #

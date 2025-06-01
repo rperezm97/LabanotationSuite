@@ -76,120 +76,83 @@ def calculate_base_rotation(joint):
     base_rotation = np.transpose(nv)
     return base_rotation
 
-def compute_local_spherical(joints):
-    """
-    Computes local spherical coordinates (relative to the parent) for key joints.
-
-    Args:
-        joints (dict): 3D positions of skeleton joints.
-
-    Returns:
-        List of spherical coordinate tuples (r, theta, phi).
-    """
-    parent_relations = {
-        "elbowR": "shoulderR",
-        "elbowL": "shoulderL",
-        "wristR": "elbowR",
-        "wristL": "elbowL",
-        "kneeR": "hipR",
-        "kneeL": "hipL",
-        "ankleR": "kneeR",
-        "ankleL": "kneeL",
-        "footR": "ankleR",
-        "footL": "ankleL",
-        "head": "chest",
-        "torso": "pelvis"
-    }
-
-    spherical_coords = []
-    
-    for joint, parent in parent_relations.items():
-        if joint in joints and parent in joints:
-            local_vec = joints[joint] - joints[parent]  # Get vector relative to parent
-            spherical_coords.append(to_sphere(local_vec))  # Convert to spherical
-
-        else:
-            print("error")
-            spherical_coords.append((0, 0, 0))  # Handle missing joints safely
-    
-    return spherical_coords
 
 #------------------------------------------------------------------------------
 # Transform origin from kinect-base to shoulder-base, 
 # convert position information to angle/direction+level
 # Replace LabaProcessor::(FindDriectionXOZ, FindLevelYOZ, FindLevelXOY)
 #import numpy as np
-import math
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from scipy.spatial.transform import Rotation as Rscipy
+# import math
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+# from scipy.spatial.transform import Rotation as Rscipy
 
-import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from scipy.spatial.transform import Rotation as Rscipy
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import numpy as np
-def visualize_skeleton_and_spherical(joints, spherical_coords, highlight_joint=None, highlight_parent=None):
-    """
-    Visualizes the full skeleton alongside spherical coordinates.
+# import numpy as np
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+# from scipy.spatial.transform import Rotation as Rscipy
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.mplot3d import Axes3D
+# import numpy as np
+# def visualize_skeleton_and_spherical(joints, spherical_coords, highlight_joint=None, highlight_parent=None):
+#     """
+#     Visualizes the full skeleton alongside spherical coordinates.
 
-    - Left: The full skeleton with highlighted joints.
-    - Right: The spherical coordinate plot.
-    """
-    fig = plt.figure(figsize=(14, 6))
+#     - Left: The full skeleton with highlighted joints.
+#     - Right: The spherical coordinate plot.
+#     """
+#     fig = plt.figure(figsize=(14, 6))
 
-    # ✅ **3D Skeleton Visualization**
-    ax1 = fig.add_subplot(121, projection='3d')
-    ax1.set_title("Skeleton with Highlighted Joint")
+#     # ✅ **3D Skeleton Visualization**
+#     ax1 = fig.add_subplot(121, projection='3d')
+#     ax1.set_title("Skeleton with Highlighted Joint")
 
-    # Skeleton Connections
-    skeleton_connections = [
-        ('pelvis', 'spineB'), ('spineB', 'spineM'), ('spineM', 'chest'), ('chest', 'head'),
+#     # Skeleton Connections
+#     skeleton_connections = [
+#         ('pelvis', 'spineB'), ('spineB', 'spineM'), ('spineM', 'chest'), ('chest', 'head'),
 
-        ('chest', 'shoulderL'), ('shoulderL', 'elbowL'), ('elbowL', 'wristL'),
-        ('chest', 'shoulderR'), ('shoulderR', 'elbowR'), ('elbowR', 'wristR'),
+#         ('chest', 'shoulderL'), ('shoulderL', 'elbowL'), ('elbowL', 'wristL'),
+#         ('chest', 'shoulderR'), ('shoulderR', 'elbowR'), ('elbowR', 'wristR'),
 
-        ('pelvis', 'hipL'), ('hipL', 'kneeL'), ('kneeL', 'ankleL'), ('ankleL', 'footL'),
-        ('pelvis', 'hipR'), ('hipR', 'kneeR'), ('kneeR', 'ankleR'), ('ankleR', 'footR')
-    ]
+#         ('pelvis', 'hipL'), ('hipL', 'kneeL'), ('kneeL', 'ankleL'), ('ankleL', 'footL'),
+#         ('pelvis', 'hipR'), ('hipR', 'kneeR'), ('kneeR', 'ankleR'), ('ankleR', 'footR')
+#     ]
 
-    # **Plot each joint connection**
-    for j1, j2 in skeleton_connections:
-        color = 'b' if (j1 != highlight_joint and j2 != highlight_joint) else 'g'  # Highlight selected joints
-        ax1.plot([joints[j1][0], joints[j2][0]], 
-                 [joints[j1][1], joints[j2][1]], 
-                 [joints[j1][2], joints[j2][2]], color + 'o-', linewidth=2)
+#     # **Plot each joint connection**
+#     for j1, j2 in skeleton_connections:
+#         color = 'b' if (j1 != highlight_joint and j2 != highlight_joint) else 'g'  # Highlight selected joints
+#         ax1.plot([joints[j1][0], joints[j2][0]], 
+#                  [joints[j1][1], joints[j2][1]], 
+#                  [joints[j1][2], joints[j2][2]], color + 'o-', linewidth=2)
 
-    # **Highlight Specific Joint**
-    if highlight_joint and highlight_parent:
-        ax1.scatter(*joints[highlight_joint], color='r', s=100, label=f"Joint: {highlight_joint}")
-        ax1.scatter(*joints[highlight_parent], color='orange', s=100, label=f"Parent: {highlight_parent}")
+#     # **Highlight Specific Joint**
+#     if highlight_joint and highlight_parent:
+#         ax1.scatter(*joints[highlight_joint], color='r', s=100, label=f"Joint: {highlight_joint}")
+#         ax1.scatter(*joints[highlight_parent], color='orange', s=100, label=f"Parent: {highlight_parent}")
 
-    ax1.set_xlabel('X')
-    ax1.set_ylabel('Y')
-    ax1.set_zlabel('Z')
-    ax1.view_init(elev=30, azim=60)
-    ax1.legend()
+#     ax1.set_xlabel('X')
+#     ax1.set_ylabel('Y')
+#     ax1.set_zlabel('Z')
+#     ax1.view_init(elev=30, azim=60)
+#     ax1.legend()
 
-    # ✅ **Spherical Coordinates Plot**
-    ax2 = fig.add_subplot(122, projection='polar')
-    ax2.set_title("Local Joint Rotations (Spherical)")
+#     # ✅ **Spherical Coordinates Plot**
+#     ax2 = fig.add_subplot(122, projection='polar')
+#     ax2.set_title("Local Joint Rotations (Spherical)")
 
-    joint_names = ["elR", "elL", "wrR", "wrL", "knR", "knL", "anR", "anL", "head", "torso"]
+#     joint_names = ["elR", "elL", "wrR", "wrL", "knR", "knL", "anR", "anL", "head", "torso"]
     
-    for i, (r, theta, phi) in enumerate(spherical_coords):
-        ax2.scatter(np.radians(phi), theta, s=r * 50, label=joint_names[i])  # Use phi for angle, theta for height
+#     for i, (r, theta, phi) in enumerate(spherical_coords):
+#         ax2.scatter(np.radians(phi), theta, s=r * 50, label=joint_names[i])  # Use phi for angle, theta for height
 
-    ax2.set_theta_zero_location("N")
-    ax2.set_theta_direction(-1)  # Clockwise
-    ax2.set_rlabel_position(0)
-    ax2.legend(loc='upper right', fontsize=8)
+#     ax2.set_theta_zero_location("N")
+#     ax2.set_theta_direction(-1)  # Clockwise
+#     ax2.set_rlabel_position(0)
+#     ax2.legend(loc='upper right', fontsize=8)
 
-    plt.show()
+#     plt.show()
 
-import numpy as np
+# import numpy as np
 
 def raw2sphere(joint, base_rotation=None, base_translation=None):
     """
@@ -246,10 +209,7 @@ def raw2sphere(joint, base_rotation=None, base_translation=None):
         "head": "neck",
         "chest": "spineM",
         "shoulderR":"chest",
-        "shoulderL":"chest"
-        
-        
-    }
+        "shoulderL":"chest"}
 
     # ✅ **Compute Spherical Coordinates Using Local Transformations**
     conv = calculate_base_rotation(joint) # Rscipy.from_euler('xyz', base_rotation, degrees=False).as_matrix() if (base_rotation is not None) else calculate_base_rotation(joint)
@@ -311,7 +271,7 @@ def coordinate2laban(theta, phi, joint_type, support_data=None, support=True):
         else:
             laban = ['Place','Low']
         
-        if joint_type!="body":
+        if joint_type=="body":
             # place high
             if theta < 15:
                 laban=['Place','High']
@@ -416,15 +376,17 @@ def detect_weight_support(jointFrames, i, base_translation_partial, base_rotatio
         support_type[1] = "Jump"
         support_type[2] = "Both"  # airborne
         base_translation_partial += np.array([0.0, JUMP_THRESHOLD, 0.0])
-    elif vertical_move < -JUMP_THRESHOLD:
-        support_type[1] = "Squat"
-        support_type[2] = "Both"
-    elif ground_contact_L and not ground_contact_R:
-        support_type[2] = "Left"
-    elif ground_contact_R and not ground_contact_L:
-        support_type[2] = "Right"
     else:
-        support_type[2] = "Both"
+        base_translation_partial[1] = 0
+        if vertical_move < -JUMP_THRESHOLD:
+            support_type[1] = "Squat"
+            support_type[2] = "Both"
+        elif ground_contact_L and not ground_contact_R:
+            support_type[2] = "Left"
+        elif ground_contact_R and not ground_contact_L:
+            support_type[2] = "Right"
+        else:
+            support_type[2] = "Both"
 
     # --- Step: if significant movement in XZ plane ---
     step_occurred = np.linalg.norm([side_move, depth_move]) > STEP_THRESHOLD
@@ -481,13 +443,17 @@ def LabanKeyframeToScript(idx, time, dur, laban_score):
 
 #------------------------------------------------------------------------------
 #
-def toScript(timeS, all_laban):
+def toScript(timeS, all_laban, keyframes):
     if (all_laban == None):
         return ""
 
     strScript = ""
     cnt = len(all_laban)
-    for j in range(cnt):
+    if not keyframes:
+        return ""
+    prev_keyframe= 0
+    for i,j in enumerate(keyframes):
+        
         if j == 0:
             time = 1
         else:
@@ -496,9 +462,9 @@ def toScript(timeS, all_laban):
         if j == (cnt - 1):
             dur = '-1'
         else:
-            dur = '1'
+            dur = "1"
 
-        strScript += LabanKeyframeToScript(j, time, dur, all_laban[j])
-
+        strScript += LabanKeyframeToScript(j, time, dur, all_laban[i])
+       
     return strScript
 

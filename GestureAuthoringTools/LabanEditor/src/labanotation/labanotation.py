@@ -127,8 +127,8 @@ class labanotation:
 
     #------------------------------------------------------------------------------
     #
-    def labanToScript(self, timeS, all_laban):
-        return labanProcessor.toScript(timeS, all_laban)
+    def labanToScript(self, timeS, all_laban, keyframes):
+        return labanProcessor.toScript(timeS, all_laban, keyframes)
 
     #------------------------------------------------------------------------------
     #

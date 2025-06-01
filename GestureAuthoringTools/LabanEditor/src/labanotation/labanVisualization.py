@@ -48,6 +48,7 @@ class convertLabanScriptToView:
 
 
         i = 0
+        time_stamp = None
         while i < len(laban_lines):
             line = laban_lines[i].strip().lower()
 
@@ -61,15 +62,16 @@ class convertLabanScriptToView:
                 continue
 
             key = tmp[0]
-            time_stamp = None
+            
             if key == "start time":
                 if self.cnt == 0:
                     start = int(tmp[1])
                 self.cnt += 1
+                
                 self.duration = int(tmp[1]) - start
                 time_stamp = int(tmp[1]) / 1000.0
             elif key == "duration":
-                pass  # already handled via "start time"
+                pass # sself.duration = int(tmp[1])/1000.0  # already handled via "start time"
             else:
                 if time_stamp is None:
                     time_stamp = self.cnt / 1000.0  # fallback if "start time" missing
@@ -227,8 +229,8 @@ class convertLabanScriptToView:
         unit = self.width/13
         x1 = int((cell-1)*unit+5)#left top corner
         x2 = int(cell*unit-5)
-        y1 = int(self.height-self.bottom-int(time2*self.scale*15)+5)#right bottom corner
-        y2 = int(self.height-self.bottom-int(time1*self.scale*15)-5)
+        y1 = int(self.height-self.bottom-int(time2*self.scale)+5)#right bottom corner
+        y2 = int(self.height-self.bottom-int(time1*self.scale)-5)
         support= (' o' in lv)
         lv=lv.replace(' o', '')
         #shading: pattern/black/dot
@@ -331,16 +333,20 @@ class convertLabanScriptToView:
     # draw one column of labanotation for one limb
     # 
     def draw_limb(self,cell,side,laban):
-        self.sign(cell,(-90.0/(15*self.scale),-5.0/(15*self.scale)),side,laban[0][1],laban[0][2])
+        self.sign(cell,(-90.0/(self.scale),-5.0/(self.scale)),side,laban[0][1],laban[0][2])
         i=1
-        k=0
+        
         while i <= self.cnt-1:
             if laban[i-1][1]==laban[i][1] and laban[i-1][2]==laban[i][2]:
                 pass
             else:
-                
+                if cell in[6,7] and not "o" in laban[i][2]:
                 #sign(cell,(time1,time2), side="Right", dire = "Place",lv = "Low"):
-                self.sign(cell,(laban[k][0],laban[i][0]),side,laban[i][1],laban[i][2])
+                       self.sign(cell,(laban[i-1][0],laban[i][0]),side,laban[i][1],laban[i][2])
+                else:
+                    self.sign(cell,(laban[i-1][0],laban[i][0]),side,laban[i][1],laban[i][2])
+
+
                 k=i
             i+=1
 

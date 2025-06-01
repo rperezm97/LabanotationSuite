@@ -191,10 +191,10 @@ class graphLaban:
 
     #------------------------------------------------------------------------------
     #
-    def setLabanotation(self, timeS, all_laban):
+    def setLabanotation(self, timeS, all_laban, keyframes):
         cnt = len(timeS)
 
-        script = settings.application.labanotation.labanToScript(timeS, all_laban)
+        script = settings.application.labanotation.labanToScript(timeS, all_laban,keyframes)
 
         s = 100
         self.view = settings.application.labanotation.labanScriptToImage(s * 10, int(s * cnt//10), script)

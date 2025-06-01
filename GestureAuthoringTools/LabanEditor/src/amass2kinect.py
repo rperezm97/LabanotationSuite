@@ -83,10 +83,10 @@ bType = np.dtype({'names':[ 'timeS',                # milliseconds
 
 # Get the world positions of left and right hips at frame 0
 def convert_to_cannon(joint_positions):
-     # --- Step 0: Swap Y and Z to convert from AMASS to Kinect coordinate system ---
+     # Swap Y and Z to convert from AMASS to Kinect coordinate system
     joint_positions[:, :, [1, 2]] = joint_positions[:, :, [2, 1]]  # Y ↔ Z
 
-    # --- Step 1: Compute canonical frame from first frame's hips ---
+    # Compute canonical frame from first frame's hips
     hipL_0 = joint_positions[0, AMASS_TO_KINECT_MAP["hipL"]]  # (3,)
     hipR_0 = joint_positions[0, AMASS_TO_KINECT_MAP["hipR"]]
     pelvis_0 = joint_positions[0, AMASS_TO_KINECT_MAP["spineB"]]
@@ -101,15 +101,15 @@ def convert_to_cannon(joint_positions):
     canonical_rotation = torch.stack([side_0, up_vec, fwd_0], dim=1)  # (3, 3)
     canonical_rotation_inv = canonical_rotation.T  # inverse (canonical → global)
 
-    # --- Step 2: Rotate and center all joint positions ---
+    #  Rotate and center all joint positions 
     joint_positions_centered = joint_positions - pelvis_0[None, None, :]  # center to pelvis
     joint_positions_canon = torch.matmul(joint_positions_centered, canonical_rotation_inv)  # (N, 52, 3)
 
-    # --- Step 3: Relative translation (in canonical frame) ---
+    #  Relative translation (in canonical frame) 
     pelvis = joint_positions[:, AMASS_TO_KINECT_MAP["spineB"]]  # (N, 3)
     relative_trans = torch.matmul(pelvis - pelvis_0, canonical_rotation_inv)  # (N, 3)
 
-    # --- Step 4: Relative rotation (per-frame) using hips ---
+    #  Relative rotation (per-frame) using hips 
     hipL = joint_positions[:, AMASS_TO_KINECT_MAP["hipL"]]  # (N, 3)
     hipR = joint_positions[:, AMASS_TO_KINECT_MAP["hipR"]]  # (N, 3)
     side = hipR - hipL
@@ -124,7 +124,7 @@ def convert_to_cannon(joint_positions):
     R_canon_inv = canonical_rotation_inv.expand(R_frames.shape[0], -1, -1)  # (N, 3, 3)
     R_rel = torch.matmul(R_frames, R_canon_inv)  # (N, 3, 3)
 
-    # --- Step 5: Convert to Euler angles ---
+    #  Convert to Euler angles ---
     relative_rot = matrix_to_euler_angles(R_rel, convention='XYZ')  # (N, 3)
 
     # --- Final output: convert to numpy ---
@@ -135,7 +135,7 @@ def convert_to_cannon(joint_positions):
     return joint_positions_canon_np, relative_trans_np, relative_rot_np
 
 
-def loadAMASSData(filePath, fps=120, device='cpu'):
+def loadAMASSData(filePath, fps=120, device='cpu', max_frames=2000):
     """
     Loads AMASS motion data and converts it to Kinect-compatible format using PyTorch optimizations.
     
@@ -160,7 +160,7 @@ def loadAMASSData(filePath, fps=120, device='cpu'):
     trans_torch = ds['trans'].clone().detach().to(dtype=torch.float32, device=device)   # (N, 3)
     # betas_torch = ds['betas'][:16].clone().detach().to(dtype=torch.float32, device=device).reshape(1, -1)
 
-    num_frames = pose_torch.shape[0]
+    num_frames =min(pose_torch.shape[0], max_frames) 
     
     # ✅ Extract root orientation and body pose
     root_orient = pose_torch[:, :3]  # (N, 3)  -> Euler angles (axis-angle)
@@ -182,7 +182,7 @@ def loadAMASSData(filePath, fps=120, device='cpu'):
     motion_data = []
     start_time = 0
 
-    for idx in tqdm(range(min(num_frames, 300)), desc="Processing Frames"):
+    for idx in tqdm(range(num_frames), desc="Processing Frames"):
         tempBody = np.zeros(1, dtype=bType)
         tempBody['filled'] = False
 
@@ -205,11 +205,14 @@ def loadAMASSData(filePath, fps=120, device='cpu'):
         tempBody[0]['R'] = relative_root[idx]   # ✅ Store transformed global rotation (Euler)
 
         motion_data.append(tempBody)
+        
 
     # ✅ Visualize 5 frames
     # plot_skeleton(motion_data, num_frames=5)
 
-    return motion_data
+    print(type(motion_data))
+    return motion_data,joint_positions_canon[:num_frames], relative_trans[:num_frames], relative_root[:num_frames]
+
 
 
 # def apply_transformation(joint_positions, T, R):

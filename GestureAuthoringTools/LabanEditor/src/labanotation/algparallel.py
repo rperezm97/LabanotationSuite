@@ -23,6 +23,8 @@ from matplotlib.backend_bases import MouseEvent
 import matplotlib.patches as patches
 import matplotlib.ticker as ticker
 
+
+from tqdm import tqdm 
 try:
     from tkinter import messagebox
 except ImportError:
@@ -59,7 +61,7 @@ class Algorithm:
     y_data = []
     points = []
 
-    data_fps = 30
+    data_fps = 120
     dragging_sb = False
     dragging_point = None
 
@@ -71,6 +73,10 @@ class Algorithm:
 
     gauss_window_size = default_gauss_window_size
     gauss_sigma = default_gauss_sigma
+
+    STEP_THRESHOLD = 0.1  # Minimum displacement to be a step (meters)
+    JUMP_THRESHOLD = 0.2  # Minimum vertical displacement for jumps (meters)
+    ROTATION_THRESHOLD = 15  # Minimum rotation for a turn (degrees)
 
     #------------------------------------------------------------------------------
     # Class initialization
@@ -96,7 +102,7 @@ class Algorithm:
         self.y_data = []
         self.points = []
 
-        self.data_fps = 30
+        self.data_fps = 120
         self.dragging_sb = False
         self.dragging_point = None
 
@@ -112,12 +118,12 @@ class Algorithm:
 
         self.ax = ax
 
-        self.jointFrames = copy.copy(jointD)
+        self.jointFrames = copy.copy(jointD[0])
 
         cnt = len(jointD)
 
-        self.data_fps = 30
-        self.duration = jointD[cnt-1]['timeS'][0] if (cnt > 0) else 0.0
+        self.data_fps = 120
+        self.duration = jointD[0][cnt-1]['timeS'][0] if (cnt > 0) else 0.0
 
         # clear canvas
         if (self.ax != None):
@@ -142,47 +148,118 @@ class Algorithm:
     # unfiltered labanotation
     #
     def calculateUnfilteredLaban(self, base_rotation_style='every'):
+        """
+        Computes Labanotation symbols for **arms, legs, support, and rotation**.
+
+        Args:
+            base_rotation_style (str): 'first' → uses first frame's base rotation;
+                                    'every' → recalculates it per frame.
+        """
         base_rotation = None
+        base_translation = None
+
         if base_rotation_style == 'first':
-            base_rotation = lp.calculate_base_rotation(
-                self.jointFrames[0])
+            try:
+                base_rotation = self.jointFrames[0]["R"][0]
+                base_translation = self.jointFrames[0]["T"][0]
+            except KeyError:
+                base_rotation = lp.calculate_base_rotation(self.jointFrames[0])
+                base_translation = None
 
         cnt = len(self.jointFrames)
 
+
         # get hand position
         self.unfilteredTimeS = np.zeros(cnt)
-
+       
+        # ✅ Store spherical coordinate data for joints
         elR = np.zeros((cnt, 3))
         elL = np.zeros((cnt, 3))
         wrR = np.zeros((cnt, 3))
         wrL = np.zeros((cnt, 3))
-    
-        for i in range(0, cnt):
+        knR = np.zeros((cnt, 3))
+        knL = np.zeros((cnt, 3))
+        anR = np.zeros((cnt, 3))
+        anL = np.zeros((cnt, 3))
+        fL= np.zeros((cnt, 3))
+        fR= np.zeros((cnt, 3))
+        head = np.zeros((cnt, 3))
+        
+        shR = np.zeros((cnt, 3))
+        shL = np.zeros((cnt, 3))
+        torso = np.zeros((cnt, 3))
+
+        # ✅ Store support (steps, jumps, turns)
+        support = np.full(cnt, 'Stable', dtype=object)  # Default: stable support
+        base_rotation_partial=self.jointFrames[0]["T"][0]
+        base_translation_partial=self.jointFrames[0]["R"][0]
+        
+        
+        for i in tqdm(range(cnt), desc="Processing Frames"):
             if base_rotation_style == 'every':
-                base_rotation = lp.calculate_base_rotation(self.jointFrames[i])
+                try:
+                    base_rotation = self.jointFrames[i]["R"][0]
+                    base_translation = self.jointFrames[i]["T"][0]
+                except KeyError:
+                    base_rotation = lp.calculate_base_rotation(self.jointFrames[i])
+                    base_translation = None
+
             self.unfilteredTimeS[i] = self.jointFrames[i]['timeS'][0]
 
-            (elR[i], elL[i], wrR[i], wrL[i]) = lp.raw2sphere(
-                self.jointFrames[i],
-                base_rotation=base_rotation)
+            # ✅ Convert joints to spherical coordinates
+            (elR[i], elL[i], wrR[i], wrL[i], 
+            knR[i], knL[i], anR[i], anL[i], fR[i],fL[i], head[i], torso[i],shR[i], shL[i]) = lp.raw2sphere(
+                self.jointFrames[i], base_rotation=base_rotation, base_translation=base_translation
+            )
 
-        # [right upper/elbow, right lower/wrist, left upper/elbow, left lower/wrist]
-        # use coordinate2laban to generate labanotation for all frames
+        # ✅ Convert to Labanotation
         self.unfilteredLaban = []
+        footL_y = self.jointFrames[0]["footL"][0][1]
+        footR_y = self.jointFrames[0]["footR"][0][1]
+        base_foot=min(footL_y, footR_y)
+        #Todo modify ankels and foots
+        for i in range(cnt):
+            support_type, rotation, base_translation_partial, base_rotation_partial = lp.detect_weight_support(self.jointFrames, i, base_translation_partial, base_rotation_partial, base_foot)
+            # ✅ Convert Joints to Labanotation
+            self.unfilteredLaban.append([
+            lp.coordinate2laban(elL[i][1], elL[i][2], 'arm'),
+            lp.coordinate2laban(wrL[i][1], wrL[i][2], 'arm'),
+            
+            lp.coordinate2laban(torso[i][1], torso[i][2], 'body'),#Todo shoulder
+            
+            lp.coordinate2laban(anL[i][1], anL[i][2], 'leg'),
+            lp.coordinate2laban(fL[i][1], fL[i][2], 'foot'),
+            lp.coordinate2laban(knL[i][1], knL[i][2], 'support', support_type[:2], support_type[2]!="Right" and support_type[1]!="Jump") ,
 
-        for i in range(0, cnt):
-            temp = []
-            temp.append(lp.coordinate2laban(elR[i][1], elR[i][2]))
-            temp.append(lp.coordinate2laban(wrR[i][1], wrR[i][2]))
-            temp.append(lp.coordinate2laban(elL[i][1], elL[i][2]))
-            temp.append(lp.coordinate2laban(wrL[i][1], wrL[i][2]))
-            self.unfilteredLaban.append(temp)
-
-        self.lines = \
-            [[elR, [self.unfilteredLaban[i][0] for i in range(cnt)], 'b', "Right Elbow"],\
-             [wrR, [self.unfilteredLaban[i][1] for i in range(cnt)], 'c', "Right Wrist"],\
-             [elL, [self.unfilteredLaban[i][2] for i in range(cnt)], 'y', "Left Elbow"],\
-             [wrL, [self.unfilteredLaban[i][3] for i in range(cnt)], 'm', "Left Wrist"]]
+            lp.coordinate2laban(knR[i][1], knR[i][2], 'support', support_type[:2], support_type[2]!="Left" and support_type[1]!="Jump",),
+            lp.coordinate2laban(fR[i][1], fR[i][2], 'foot'),
+            lp.coordinate2laban(anR[i][1], anR[i][2], 'leg'),
+            
+            lp.coordinate2laban(torso[i][1], torso[i][2], 'body'),#Todo shoulder
+            
+            lp.coordinate2laban(wrR[i][1], wrR[i][2], 'arm'),
+            lp.coordinate2laban(elR[i][1], elR[i][2], 'arm'),
+            
+            lp.coordinate2laban(head[i][1], head[i][2], 'head'),
+            support_type,
+            rotation, 
+            base_translation_partial, base_rotation_partial
+            ])
+        # Collect all lines for parallel processing
+        self.lines = [
+            [elL, [x[0] for x in self.unfilteredLaban], 'y', "Left Elbow"],
+            [wrL, [x[1] for x in self.unfilteredLaban], 'm', "Left Wrist"],
+            [elR, [x[11] for x in self.unfilteredLaban], 'b', "Right Elbow"],
+            [wrR, [x[10] for x in self.unfilteredLaban], 'c', "Right Wrist"],
+            [knL, [x[5] for x in self.unfilteredLaban], 'orange', "Left Knee"],
+            [knR, [x[6] for x in self.unfilteredLaban], 'purple', "Right Knee"],
+            [anL, [x[3] for x in self.unfilteredLaban], 'lime', "Left Ankle"],
+            [anR, [x[8] for x in self.unfilteredLaban], 'navy', "Right Ankle"],
+            [fL, [x[4] for x in self.unfilteredLaban], 'pink', "Left Foot"],
+            [fR, [x[7] for x in self.unfilteredLaban], 'gray', "Right Foot"],
+            # [torso, [x[2] for x in self.unfilteredLaban], 'brown', "Torso"],
+            [head, [x[12] for x in self.unfilteredLaban], 'green', "Head"]
+        ]
 
     #------------------------------------------------------------------------------
     # apply parallel energy algoritm to joint data frames and calculate labanotation
@@ -221,7 +298,7 @@ class Algorithm:
         # for human3.6m, fps = 50
         # 20m sec x 15 = 300
 
-        thres_dis = 9 # int(300/(1000/self.data_fps))
+        thres_dis =  int(30/(1000/self.data_fps))
 
         # use a sliding window searching among sparse valleys
         indices = []
@@ -321,7 +398,7 @@ class Algorithm:
 
         self.setSelectedFrameMarker()
 
-        return (self.timeS, self.all_laban)
+        return (self.unfilteredTimeS, self.unfilteredLaban, new_indices)
 
     #------------------------------------------------------------------------------
     #   t: theta, p: phi
@@ -350,17 +427,32 @@ class Algorithm:
     #------------------------------------------------------------------------------
     #
     def getLabanotationKeyframeData(self, idx, time, dur, laban):
+        """
+        Generates a structured Labanotation keyframe data dictionary for full-body motion.
+        """
         data = OrderedDict()
         data["start time"] = [str(time)]
         data["duration"] = [str(dur)]
-        data["head"] = ['Forward','Normal']
-        data["right elbow"] = [laban[0][0], laban[0][1]]
-        data["right wrist"] = [laban[1][0], laban[1][1]]
-        data["left elbow"] = [laban[2][0], laban[2][1]]
-        data["left wrist"] = [laban[3][0], laban[3][1]]
-        data["rotation"] = ['ToLeft','0']
+
+        # ➤ Extract motion direction and level for each body part (following staff order)
+        data["left elbow"]   = [laban[0][0], laban[0][1]]
+        data["left wrist"]   = [laban[1][0], laban[1][1]]
+        data["left body"]    = [laban[2][0], laban[2][1]]
+        data["left ankle"]   = [laban[3][0], laban[3][1]]
+        data["left foot"]    = [laban[4][0], laban[4][1]]
+        data["left knee"]    = [laban[5][0], laban[5][1]]
+        data["right knee"]   = [laban[6][0], laban[6][1]]
+        data["right foot"]   = [laban[7][0], laban[7][1]]
+        data["right ankle"]  = [laban[8][0], laban[8][1]]
+        data["right body"] =   [laban[9][0], laban[9][1]]  # Optional: torso again?
+        data["right wrist"]  = [laban[10][0], laban[10][1]]
+        data["right elbow"]  = [laban[11][0], laban[11][1]]
+        data["head"]         = [laban[12][0], laban[12][1]]
+        data["support"]      = [laban[13]]
+        data["rotation"]     = ['ToLeft', laban[14]]
 
         return data
+
 
     #------------------------------------------------------------------------------
     # update labanotation key frames

@@ -25,6 +25,7 @@ except ImportError:
 
 import settings
 
+# from . import labanProcessor as lp
 #------------------------------------------------------------------------------
 # AMASS Joint Mapping to Kinect Body Format
 
@@ -210,8 +211,8 @@ class graph3D:
             onetick = (maxTime) / float(cnt)
             self.axFrameBlocks1.set_xlim((0, maxTime))
             self.axFrameBlocks1.xaxis.tick_top()
-            self.axFrameBlocks1.xaxis.set_minor_locator(ticker.MultipleLocator(onetick * 5))
-            self.axFrameBlocks1.xaxis.set_major_locator(ticker.MultipleLocator(onetick * 10))
+            self.axFrameBlocks1.xaxis.set_minor_locator(ticker.MultipleLocator(onetick * 50))
+            self.axFrameBlocks1.xaxis.set_major_locator(ticker.MultipleLocator(onetick * 100))
             self.axFrameBlocks1.set_xticklabels([])
             self.axFrameBlocks1.get_yaxis().set_visible(False)
 
@@ -322,7 +323,7 @@ class graph3D:
 
             # find the frame corresponding to the given time
             for idx in range(0, cnt):
-                kt = (self.timeS[idx]) / 1000.0
+                kt = (self.timeS[idx]-1) / 1000.0
                 if (kt >= time):
                     break
 
@@ -367,7 +368,7 @@ class graph3D:
 
 
 
-            self.drawLabanotationSkeleton(laban = curr_laban)
+            self.drawLabanotationSkeleton(round(120*kt), laban = curr_laban)
 
             if (self.axFrameBlocks2 != None):
                 if (self.annSelection != None):
@@ -455,53 +456,53 @@ class graph3D:
     #        [0,  s,  c]             [s,  0,  c]             [0,  0,  1],
     #      ]))                     ]))                     ]))
 
-    def correctSkeletonRotation(self):
-        shL = np.zeros(3)
-        shR = np.zeros(3)
-        spM = np.zeros(3)
-        shL[0] = self.joints[4][1]  # left shoulder
-        shL[1] = self.joints[4][2]
-        shL[2] = self.joints[4][0]
-        shR[0] = self.joints[8][1]  # right shoulder
-        shR[1] = self.joints[8][2]
-        shR[2] = self.joints[8][0]
-        spM[0] = self.joints[1][1]  # spine middle
-        spM[1] = self.joints[1][2]
-        spM[2] = self.joints[1][0]
+    # def correctSkeletonRotation(self):
+    #     shL = np.zeros(3)
+    #     shR = np.zeros(3)
+    #     spM = np.zeros(3)
+    #     shL[0] = self.joints[4][1]  # left shoulder
+    #     shL[1] = self.joints[4][2]
+    #     shL[2] = self.joints[4][0]
+    #     shR[0] = self.joints[8][1]  # right shoulder
+    #     shR[1] = self.joints[8][2]
+    #     shR[2] = self.joints[8][0]
+    #     spM[0] = self.joints[1][1]  # spine middle
+    #     spM[1] = self.joints[1][2]
+    #     spM[2] = self.joints[1][0]
         
-        # find where the performer is facing, rotate the body figure
-        sh = np.zeros((3,3))
-        v1 = shL-shR
-        v2 = spM-shR
-        sh[0] = np.cross(v2,v1) # x axis
-        x = sh[0][0]
-        y = sh[0][1]
-        z = sh[0][2]
+    #     # find where the performer is facing, rotate the body figure
+    #     sh = np.zeros((3,3))
+    #     v1 = shL-shR
+    #     v2 = spM-shR
+    #     sh[0] = np.cross(v2,v1) # x axis
+    #     x = sh[0][0]
+    #     y = sh[0][1]
+    #     z = sh[0][2]
 
-        # rotate around y axis
-        r = math.sqrt(z*z+x*x)
-        sinth = x/r
-        costh = z/r
-        conv = np.zeros((3,3))
-        conv[0][0] = costh
-        conv[0][1] = 0
-        conv[0][2] = -sinth
-        conv[1][0] = 0
-        conv[1][1] = 1
-        conv[1][2] = 0
-        conv[2][0] = sinth
-        conv[2][1] = 0
-        conv[2][2] = costh
+    #     # rotate around y axis
+    #     r = math.sqrt(z*z+x*x)
+    #     sinth = x/r
+    #     costh = z/r
+    #     conv = np.zeros((3,3))
+    #     conv[0][0] = costh
+    #     conv[0][1] = 0
+    #     conv[0][2] = -sinth
+    #     conv[1][0] = 0
+    #     conv[1][1] = 1
+    #     conv[1][2] = 0
+    #     conv[2][0] = sinth
+    #     conv[2][1] = 0
+    #     conv[2][2] = costh
         
-        for i in range(len(self.joints)):
-            tmp_in = np.zeros(3)
-            tmp_in[0] = self.joints[i][1]
-            tmp_in[1] = self.joints[i][2]
-            tmp_in[2] = self.joints[i][0]
-            tmp_out = np.dot(conv,tmp_in)
-            self.joints[i][1] = tmp_out[0]
-            self.joints[i][2] = tmp_out[1]
-            self.joints[i][0] = tmp_out[2]
+    #     for i in range(len(self.joints)):
+    #         tmp_in = np.zeros(3)
+    #         tmp_in[0] = self.joints[i][1]
+    #         tmp_in[1] = self.joints[i][2]
+    #         tmp_in[2] = self.joints[i][0]
+    #         tmp_out = np.dot(conv,tmp_in)
+    #         self.joints[i][1] = tmp_out[0]
+    #         self.joints[i][2] = tmp_out[1]
+    #         self.joints[i][0] = tmp_out[2]
 
 
     #------------------------------------------------------------------------------
@@ -596,7 +597,7 @@ class graph3D:
     #------------------------------------------------------------------------------
     # convert labanotation to joint points
     #
-    def mapLabanotation2Joints(self, laban):
+    def mapLabanotation2Joints(self, idx, laban):
         """
         Builds self.joints using canonical AMASS T-pose + laban offsets.
         self.joints[i] = [x, y, z, parent_idx]
@@ -608,6 +609,7 @@ class graph3D:
             # self.joints[i][3] = self.parents[i]
 
         # Set pelvis (spineB, index 0)
+        keyframe_idx=idx
         
         root_name = self.joint_names_ordered[0]
         root_amass_idx = self.AMASS_TO_KINECT_MAP[root_name]
@@ -688,16 +690,23 @@ class graph3D:
                 self.joints[i][0:3] = parent_pos + rotated_child_vec
             
             
-        min_foot= min(self.joints[15][1], self.joints[19][1])
-        foot_offset=base_foot-min_foot
-        if laban[15].split(":")[1]=="Jump":
-            for joint in self.joints:
-                joint[1]+=self.scale*0.1
-                
-        else:
-            for joint in self.joints:
-                joint[1]+=foot_offset
-           
+       
+        # Base vertical alignment to ground
+        min_foot = min(self.joints[15][1], self.joints[19][1])
+        foot_offset = base_foot - min_foot
+        
+        R_yaw = np.array([
+            [np.cos(self.rotation[keyframe_idx]), 0, np.sin(self.rotation[keyframe_idx])],
+            [0, 1, 0],
+            [-np.sin(self.rotation[keyframe_idx]), 0, np.cos(self.rotation[keyframe_idx])]
+        ])
+        for joint in self.joints:
+            # Rotate around origin (could rotate around root if needed)
+            joint[:3] = R_yaw @ joint[:3]
+            # joint[1] += -foot_offset  # vertical align to base
+            joint[:3] += self.translation[keyframe_idx]  # move in XZ plane
+    
+            
     #------------------------------------------------------------------------------
     # calculate the given joint using its parent joint and a vector
     #
@@ -731,17 +740,17 @@ class graph3D:
         
         # Support-specific thresholds (inverted: lower theta = higher)
         if level == "low o":
-            theta = 90
+            theta = 60
         elif level == "normal o":
-            theta = 120
+            theta = 100
         elif level == "high o":
             theta = 170
         elif level== "high":
-            theta = 45
+            theta = 60
         elif level == "normal":
-            theta = 90
+            theta = 100
         elif level == "low":
-            theta = 135
+            theta = 170
         else:
             print(f"Unknown level: {level}")
             theta = 135
@@ -787,7 +796,7 @@ class graph3D:
 
     #------------------------------------------------------------------------------
     #
-    def drawLabanotationSkeleton(self, laban=""):
+    def drawLabanotationSkeleton(self, idx, laban=""):
         if (laban == ''):
             return
 
@@ -796,11 +805,11 @@ class graph3D:
             self.joints[i][1] = 0
             self.joints[i][2] = 0
 
-        self.mapLabanotation2Joints(laban)
+        self.mapLabanotation2Joints(idx, laban)
 
         # map to graph xyz
         for i in range(0,len(self.joints)):
-            x = self.joints[i][0]
+            x = -self.joints[i][0]
             y = self.joints[i][1]
             z = self.joints[i][2]
 
@@ -849,8 +858,8 @@ class graph3D:
         
         # scale, spine_shoulder->spine_midlle is 5
         d = np.linalg.norm(self.amass_joints[3]-self.amass_joints[6])
-        self.scale = (3.0 / d)
-        self.amass_joints*=self.scale
+        self.smpl_scale = (3.0 / d)
+        self.amass_joints*= self.smpl_scale
         
         self.AMASS_TO_KINECT_MAP = {
             "spineB": 0, "spineM": 3,
@@ -895,6 +904,12 @@ class graph3D:
         
         original_joints=np.zeros((len(keyframes),25, 3))
         laban_joints=original_joints.copy()
+        self.translation={}
+        self.rotation={}
+        
+        footL_y = self.amass_joints[self.AMASS_TO_KINECT_MAP["footR"]][1]
+        footR_y = self.amass_joints[self.AMASS_TO_KINECT_MAP["footL"]][1]
+        base_foot=min(footL_y, footR_y)
         
         for i, idx in enumerate(keyframes):
             
@@ -912,7 +927,13 @@ class graph3D:
                 original_joints[i,k,0] = temp[k+2][0]#*scale
                 original_joints[i,k,1] = temp[k+2][1]#*scale
                 original_joints[i,k,2] = -temp[k+2][2]#*scale
-            laban = self.all_laban[idx]
+            laban = self.all_laban[i]
+
+            # -- Detect weight support to update base translation and rotation
+            # support_info, delta_rot, base_translation, base_rotation = lp.detect_weight_support(
+            #     self.jointFrames, idx, base_translation, base_rotation, base_foot,
+            #     STEP_THRESHOLD=0.01, JUMP_THRESHOLD=0.1, ROTATION_THRESHOLD=15
+            # )
 
             curr_laban =  [
                         'Start Time:' + str(0),
@@ -935,15 +956,66 @@ class graph3D:
                     'Rotation:ToLeft:' + str(laban[14])
                 ]
 
+            
+            
+               # --- Adjust based on support movement direction ---
+            support_info = laban[13]
+            yaw_angle= np.deg2rad(float(laban[-1][0]))
+            support_dir = support_info[0].lower().strip()
+
+            
+            # Translation offset per step (assumes 1 unit ~ 1m; adjust as needed)
+            step_offset = self.smpl_scale*0.2   # matches STEP_THRESHOLD
+            try:
+                a = self.translation[idx]
+            except:
+                self.translation[idx]=np.array([0.0,0.0,0.0])
+            t=self.translation.get(keyframes[i-1],[0,0,0])
+            self.translation[idx] +=t
+
+            if support_dir == "forward":
+                self.translation[idx] += np.array([0, 0, -step_offset])
+            elif support_dir == "backward":
+                self.translation[idx] += np.array([0, 0, step_offset])
+            elif support_dir == "left":
+                self.translation[idx] += np.array([-step_offset, 0, 0])
+            elif support_dir == "right":
+                self.translation[idx] += np.array([step_offset, 0, 0])
+            elif support_dir == "left forward":
+                self.translation[idx] += np.array([-step_offset, 0,- step_offset])
+            elif support_dir == "right forward":
+                self.translation[idx] += np.array([step_offset, 0, -step_offset])
+                
+            elif support_dir == "left backward":
+                self.translation[idx] += np.array([-step_offset, 0, step_offset])
+                
+            elif support_dir == "right backward":
+                self.translation[idx] += np.array([step_offset, 0, step_offset])
+                
+            else:
+                self.translation[idx] += np.array([0.0, 0.0, 0.0])
+                    
+            if self.translation.get(keyframes[i-1],[0,0,0])[1]>0:
+                if support_info[1] != "Jump":
+                   self.translation[idx][1]=0
+            else:
+                 if support_info[1] == "Jump":
+                      self.translation[idx][1]=0.2*self.smpl_scale
+            # TODO: Squat?
+            self.rotation[idx]=(self.rotation.get(keyframes[i-1],0.0))+yaw_angle
+          # Yaw rotation matrix (around Y-axis)
+           
+            
+            
             # take a kinect snapshot of joints in time and render them.
             # Map to graph's xyz space
-            self.mapLabanotation2Joints(curr_laban)
+            self.mapLabanotation2Joints(idx, curr_laban)
             laban_joints[i]=np.array(self.joints)[:,:3]
             
+            
         
-       
         original = np.array(original_joints)
-        laban_joints/=self.scale
+        laban_joints/=self.smpl_scale
         
         # Promediado sobre frames y ejes (x,y,z)
         mse_per_joint = np.around(np.mean((original - laban_joints) ** 2, axis=(0, 2)) ,
@@ -953,43 +1025,43 @@ class graph3D:
             print(joint, " : ", error) 
         print("Total MSE:", np.mean(mse_per_joint))
         
-        # def plot_skeletons(original_joints, laban_joints, parents):
-        #     fig = plt.figure(figsize=(12, 6))
+        def plot_skeletons(original_joints, laban_joints, parents):
+            fig = plt.figure(figsize=(12, 6))
             
-        #     # Left: Original
-        #     ax1 = fig.add_subplot(121, projection='3d')
-        #     ax1.set_title("Original Skeleton (Keyframe 0)")
-        #     plot_skeleton(ax1, original_joints, parents, color='blue')
+            # Left: Original
+            ax1 = fig.add_subplot(121, projection='3d')
+            ax1.set_title("Original Skeleton (Keyframe 0)")
+            plot_skeleton(ax1, original_joints, parents, color='blue')
 
-        #     # Right: Reconstructed
-        #     ax2 = fig.add_subplot(122, projection='3d')
-        #     ax2.set_title("Laban Reconstruction (Keyframe 0)")
-        #     plot_skeleton(ax2, laban_joints, parents, color='green')
+            # Right: Reconstructed
+            ax2 = fig.add_subplot(122, projection='3d')
+            ax2.set_title("Laban Reconstruction (Keyframe 0)")
+            plot_skeleton(ax2, laban_joints, parents, color='green')
 
-        #     plt.tight_layout()
-        #     plt.show()
+            plt.tight_layout()
+            plt.show()
 
-        # def plot_skeleton(ax, joints, parents, color='blue'):
-        #     ax.scatter(joints[:, 0], joints[:, 1], joints[:, 2], color=color, s=30)
-        #     for i in range(len(joints)):
-        #         p = parents[i]
-        #         if p == -1:
-        #             continue
-        #         x = [joints[i][0], joints[p][0]]
-        #         y = [joints[i][1], joints[p][1]]
-        #         z = [joints[i][2], joints[p][2]]
-        #         ax.plot(x, y, z, color=color, linewidth=2)
-        #     ax.set_xlim(-20, 20)
-        #     ax.set_ylim(-20, 20)
-        #     ax.set_zlim(-20, 20)
-        #     ax.set_xlabel("X")
-        #     ax.set_ylabel("Y")
-        #     ax.set_zlabel("Z")
-        #     ax.view_init(elev=15, azim=-70)
+        def plot_skeleton(ax, joints, parents, color='blue'):
+            ax.scatter(joints[:, 0], joints[:, 1], joints[:, 2], color=color, s=30)
+            for i in range(len(joints)):
+                p = parents[i]
+                if p == -1:
+                    continue
+                x = [joints[i][0], joints[p][0]]
+                y = [joints[i][1], joints[p][1]]
+                z = [joints[i][2], joints[p][2]]
+                ax.plot(x, y, z, color=color, linewidth=2)
+            ax.set_xlim(-20, 20)
+            ax.set_ylim(-20, 20)
+            ax.set_zlim(-20, 20)
+            ax.set_xlabel("X")
+            ax.set_ylabel("Y")
+            ax.set_zlabel("Z")
+            ax.view_init(elev=15, azim=-70)
         
         # Assume you're using the same skeleton definition for both
-        # parents = [j[3] for j in self.joints]
-        # plot_skeletons(original_joints[2,:,:]*self.scale, laban_joints[2,:,:]*self.scale, parents)
+        parents = [j[3] for j in self.joints]
+        plot_skeletons(original_joints[-5,:,:]*self.smpl_scale, laban_joints[-5,:,:]*self.smpl_scale, parents)
 
         return mse_per_joint, laban_joints  
 

@@ -40,6 +40,19 @@ import accessory as ac
 import wavfilter as wf
 import cluster as cl
 
+
+
+from . import physical_indices as physics
+from . import kbs_laban  as kbs_laban
+AMASS_TO_KINECT_MAP = {
+    "spineB": 0, "spineM": 3, "spineS": 6, "neck": 12, "head": 15,
+    "shoulderL": 16, "elbowL": 18, "wristL": 20, "handL": 25,
+    "shoulderR": 17, "elbowR": 19, "wristR": 21, "handR": 41,
+    "hipL": 1, "kneeL": 4, "ankleL": 7, "footL": 10,
+    "hipR": 2, "kneeR": 5, "ankleR": 8, "footR": 11,
+    "handTL": 34, "thumbL": 35, "handTR": 49, "thumbR": 50
+}
+
 class Algorithm:
     algorithm = None
     ax = None
@@ -59,20 +72,20 @@ class Algorithm:
     y_data = []
     points = []
 
-    data_fps = 30
+    data_fps = 120
     dragging_sb = False
     dragging_point = None
 
     selectedFrame = 0
     selectedFrameMarker = None
 
-    default_gauss_window_size = 31
+    default_gauss_window_size = 61
     default_gauss_sigma = 5
 
     gauss_window_size = default_gauss_window_size
     gauss_sigma = default_gauss_sigma
 
-    STEP_THRESHOLD = 0.1  # Minimum displacement to be a step (meters)
+    STEP_THRESHOLD = 0.2  # Minimum displacement to be a step (meters)
     JUMP_THRESHOLD = 0.2  # Minimum vertical displacement for jumps (meters)
     ROTATION_THRESHOLD = 15  # Minimum rotation for a turn (degrees)
 
@@ -102,7 +115,7 @@ class Algorithm:
         self.y_data = []
         self.points = []
 
-        self.data_fps = 30
+        self.data_fps = 120
         self.dragging_sb = False
         self.dragging_point = None
 
@@ -119,12 +132,12 @@ class Algorithm:
 
         self.ax = ax
 
-        self.jointFrames = copy.copy(jointD)
+        self.jointFrames = copy.copy(jointD[0])
 
-        cnt = len(jointD)
+        cnt = len( self.jointFrames)
 
-        self.data_fps = 30
-        self.duration = jointD[cnt-1]['timeS'][0] if (cnt > 0) else 0.0
+        self.data_fps = 120
+        self.duration =  self.jointFrames[cnt-1]['timeS'][0] if (cnt > 0) else 0.0
 
         # clear canvas
         if (self.ax != None):
@@ -135,12 +148,24 @@ class Algorithm:
             self.vlines = None
             self.y_data = []
             self.points = []
-
+        # fps=120
+        # self.unfilteredTimeS= [int(1 + (idx * (1000 / fps))) for idx in range(cnt)]
+        
         self.calculateUnfilteredLaban(base_rotation_style=base_rotation_style)
+        self.timeS, self.all_laban, self.keyframes=self.totalEnergy(jointD[1])
 
-        return self.totalEnergy()
+        self.all_laban = kbs_laban.run_classification(jointD[1:], self.keyframes)
 
-   
+        # return self.totalEnergy()
+
+        
+        # # self.calculateUnfilteredLaban(base_rotation_style=base_rotation_style)
+      
+        # self.unfilteredLaban= kbs_laban.run_KBS(jointD,self.keyframes)
+       
+        return self.timeS,self.all_laban, [0]+self.keyframes+[len(jointD[1])-1]
+
+    
     def calculateUnfilteredLaban(self, base_rotation_style='every'):
         """
         Computes Labanotation symbols for **arms, legs, support, and rotation**.
@@ -205,6 +230,10 @@ class Algorithm:
             knR[i], knL[i], anR[i], anL[i], fR[i],fL[i], head[i], torso[i],shR[i], shL[i]) = lp.raw2sphere(
                 self.jointFrames[i], base_rotation=base_rotation, base_translation=base_translation
             )
+            if i==0:
+                print(lp.raw2sphere(
+                self.jointFrames[i], base_rotation=base_rotation, base_translation=base_translation
+                 ))
 
         # ✅ Convert to Labanotation
         self.unfilteredLaban = []
@@ -243,130 +272,122 @@ class Algorithm:
     #------------------------------------------------------------------------------
     # apply total energy algoritm to joint data frames and calculate labanotation
     #
-    def totalEnergy(self):
-        cnt = len(self.jointFrames)
+    def totalEnergy(self, joint_vector):
+        """
+        Compute aggregated energy from smoothed joint trajectories and extract keyframe indices.
 
-        # **1️⃣ Allocate space for key body joints**
-        handR, handL = np.zeros((cnt, 3)), np.zeros((cnt, 3))
-        footR, footL = np.zeros((cnt, 3)), np.zeros((cnt, 3))
-        head = np.zeros((cnt, 3))
-        torso = np.zeros((cnt, 3))
+        Args:
+            joint_vector (np.ndarray): Array of shape (T, J, 3) with raw joint positions.
 
-        for i in range(cnt):
-            # **Extract hand positions**
-            handR[i] = [self.jointFrames[i]['wristR']['x'][0], 
-                        self.jointFrames[i]['wristR']['y'][0], 
-                        self.jointFrames[i]['wristR']['z'][0]]
-            handL[i] = [self.jointFrames[i]['wristL']['x'][0], 
-                        self.jointFrames[i]['wristL']['y'][0], 
-                        self.jointFrames[i]['wristL']['z'][0]]
+        Returns:
+            List[int]: Keyframe indices detected as local maxima of the combined energy.
+        """
+        # 1️⃣ Smooth raw joint positions along the temporal axis
+        #    joint_vector shape: (T, J, 3)
 
-            # **Extract foot positions**
-            footR[i] = [self.jointFrames[i]['ankleR']['x'][0], 
-                        self.jointFrames[i]['ankleR']['y'][0], 
-                        self.jointFrames[i]['ankleR']['z'][0]]
-            footL[i] = [self.jointFrames[i]['ankleL']['x'][0], 
-                        self.jointFrames[i]['ankleL']['y'][0], 
-                        self.jointFrames[i]['ankleL']['z'][0]]
+        T, J, _ = joint_vector.shape
 
-            # **Extract head position**
-            head[i] = [self.jointFrames[i]['head']['x'][0], 
-                    self.jointFrames[i]['head']['y'][0], 
-                    self.jointFrames[i]['head']['z'][0]]
+        # 1️⃣ Smooth at large sigma
+        sm_large = physics.smooth_positions(joint_vector,
+                                            sigma=self.default_gauss_sigma,
+                                            window_size=self.default_gauss_window_size,
+                                            )
+        # 1a️⃣ Smooth at small sigma (naive)
+        sm_small = physics.smooth_positions(joint_vector, 
+                                            sigma=1.0, 
+                                            window_size=self.default_gauss_window_size)
 
-            # **Extract torso (Spine Mid) position**
-            torso[i] = [self.jointFrames[i]['spineM']['x'][0], 
-                        self.jointFrames[i]['spineM']['y'][0], 
-                        self.jointFrames[i]['spineM']['z'][0]]
+        dt = 1.0 / self.data_fps
+        # 2️⃣ Vel/Acc for both
+        vel_L, vel_S = {}, {}
+        acc_L, acc_S = {}, {}
+        for name in ('wristL','wristR','ankleL','ankleR','head'):
+            idx = AMASS_TO_KINECT_MAP[name]
+            vel_L[name] = (sm_large[2:, idx] - sm_large[:-2, idx]) / (2*dt)
+            acc_L[name] = (sm_large[2:, idx] - 2*sm_large[1:-1, idx] + sm_large[:-2, idx]) / (dt*dt)
+            vel_S[name] = (sm_small[2:, idx] - sm_small[:-2, idx]) / (2*dt)
+            acc_S[name] = (sm_small[2:, idx] - 2*sm_small[1:-1, idx] + sm_small[:-2, idx]) / (dt*dt)
 
-        # **2️⃣ Apply Gaussian filtering to smooth noise**
-        gauss = wf.gaussFilter(self.gauss_window_size, self.gauss_sigma)
+        # 3️⃣ Compute per-part energy (IJCV)
+        e_hands   = kpex.energy_function_ijcv(vel_L['wristL'], acc_L['wristL'], vel_L['wristR'], acc_L['wristR'])
+        e_feet    = kpex.energy_function_ijcv(vel_L['ankleL'], acc_L['ankleL'], vel_L['ankleR'], acc_L['ankleR'])
+        e_head    = kpex.energy_function_ijcv(vel_L['head'],    acc_L['head'],    vel_L['head'],    acc_L['head']) * 0.5
+        e_comb_L  = e_hands + e_feet + e_head
+        # naive
+        e_hands_s = kpex.energy_function_ijcv(vel_S['wristL'], acc_S['wristL'], vel_S['wristR'], acc_S['wristR'])
+        e_feet_s  = kpex.energy_function_ijcv(vel_S['ankleL'], acc_S['ankleL'], vel_S['ankleR'], acc_S['ankleR'])
+        e_head_s  = kpex.energy_function_ijcv(vel_S['head'],    acc_S['head'],    vel_S['head'],    acc_S['head']) * 0.5
+        e_comb_S  = e_hands_s + e_feet_s + e_head_s
 
-        handRF, handLF = wf.calcFilter(handR, gauss), wf.calcFilter(handL, gauss)
-        footRF, footLF = wf.calcFilter(footR, gauss), wf.calcFilter(footL, gauss)
-        headF = wf.calcFilter(head, gauss)
-        torsoF = wf.calcFilter(torso, gauss)
+        # 4️⃣ Normalize large‐sigma combined
+        ec = e_comb_L
+        ec = (ec - ec.min()) / (ec.max() - ec.min() + 1e-8)
 
-        # **3️⃣ Compute velocities**
-        handRv, handLv = ac.vel(self.unfilteredTimeS, handRF), ac.vel(self.unfilteredTimeS, handLF)
-        footRv, footLv = ac.vel(self.unfilteredTimeS, footRF), ac.vel(self.unfilteredTimeS, footLF)
-        headV = ac.vel(self.unfilteredTimeS, headF)
-        torsoV = ac.vel(self.unfilteredTimeS, torsoF)
+        # 5️⃣ Keyframes via gaussian_pecdec
+        kf = kpex.gaussian_pecdec(ec)
 
-        # **4️⃣ Compute accelerations**
-        handRa, handLa = ac.acc(self.unfilteredTimeS, handRv), ac.acc(self.unfilteredTimeS, handLv)
-        footRa, footLa = ac.acc(self.unfilteredTimeS, footRv), ac.acc(self.unfilteredTimeS, footLv)
-        headA = ac.acc(self.unfilteredTimeS, headV)
-        torsoA = ac.acc(self.unfilteredTimeS, torsoV)
+        # 6️⃣ Inflection points
+        infl = ac.inflection(ec)
 
-        # **5️⃣ Compute Separate Energy Functions**
-        energy_hands = kpex.energy_function_ijcv(
-            v_l=handLv, a_l=handLa,
-            v_r=handRv, a_r=handRa
-        )
-
-        energy_feet = kpex.energy_function_ijcv(
-            v_l=footLv, a_l=footLa,
-            v_r=footRv, a_r=footRa
-        )
-
-        energy_head = kpex.energy_function_ijcv(
-            v_l=headV, a_l=headA,
-            v_r=headV, a_r=headA  # No left-right separation for head
-        )
-
-        energy_torso = kpex.energy_function_ijcv(
-            v_l=torsoV, a_l=torsoA,
-            v_r=torsoV, a_r=torsoA  # No left-right separation for torso
-        )
-
-        # **6️⃣ Detect keyframes where any energy function has a local minimum**
-        indices_hands = kpex.gaussian_pecdec(energy_hands)
-        indices_feet = kpex.gaussian_pecdec(energy_feet)
-        indices_head = kpex.gaussian_pecdec(energy_head)
-        indices_torso = kpex.gaussian_pecdec(energy_torso)
-
-        # Combine keyframe indices (only unique values)
-        all_indices = sorted(set(indices_hands) | set(indices_feet) | set(indices_head) | set(indices_torso))
-
+        # 7️⃣ Save for downstream
         self.y_data = {
-            'hands': energy_hands,
-            'feet': energy_feet,
-            'head': energy_head,
-            'torso': energy_torso
+            'hands_large': e_hands,
+            'feet_large':  e_feet,
+            'head_large':  e_head,
+            'combined':    ec,
+            'naive':       e_comb_S
         }
+        self.points = {i: ec[i] for i in kf}
+        self.keyframes = kf
+        # 8️⃣ Plot
+        if (self.ax != None):
+            xmax = max(self.unfilteredTimeS) / 1000.0
 
-        self.points = {idx: (energy_hands[idx], energy_feet[idx], energy_head[idx], energy_torso[idx]) 
-                    for idx in all_indices}
+            self.ax.plot(e_comb_L, color='dimgray', label='Total')
+            self.ax.plot(e_comb_S, color='mediumpurple', label='Naive')
+       
+            self.ax.set_xlim((0, len(e_comb_L)-1))
+            self.ax.set_ylim((min(e_comb_L)-0.5, max(e_comb_L)+0.5))
 
-        # **7️⃣ Plot Separate Energy Graphs**
-        if self.ax:
-            self.ax.plot(energy_hands, color='red', label='Arms/Hands Energy')
-            self.ax.plot(energy_feet, color='blue', label='Legs/Feet Energy')
-            self.ax.plot(energy_head, color='green', label='Head Energy')
-            self.ax.plot(energy_torso, color='purple', label='Torso Energy')
+            def format_func(value, tick_number):
+                cnt = len(self.unfilteredTimeS)
+                idx = int(value)
+                if (idx < 0) or (idx >= cnt):
+                    return ""
 
-            self.ax.set_xlim((0, len(energy_hands) - 1))
-            self.ax.set_ylim((min(min(energy_hands), min(energy_feet), min(energy_head), min(energy_torso)) - 0.5, 
-                            max(max(energy_hands), max(energy_feet), max(energy_head), max(energy_torso)) + 0.5))
+                time = self.unfilteredTimeS[idx] / 1000.0
 
-            legend_elements = [
-                Line2D([0], [0], color='red', label='Arms/Hands Energy'),
-                Line2D([0], [0], color='blue', label='Legs/Feet Energy'),
-                Line2D([0], [0], color='green', label='Head Energy'),
-                Line2D([0], [0], color='purple', label='Torso Energy'),
-                Line2D([0], [0], marker='o', color='w', label='Key Frames', markerfacecolor='black', markersize=10)
-            ]
+                return r"${:.2f}$".format(time)
 
-            self.ax.legend(handles=legend_elements, bbox_to_anchor=(0, 1), loc=3, ncol=4)
+            # look at https://matplotlib.org/3.1.1/gallery/ticks_and_spines/tick-locators.html for fine-tuning ticks
+            self.ax.xaxis.set_major_formatter(plt.FuncFormatter(format_func))
 
+            self.ax.tick_params(axis='y', labelsize=8)
+
+            legend_elements = [Line2D([0], [0], color='dimgray', label='Energy'),
+                               Line2D([0], [0], color='mediumpurple', label='Naive Energy'),
+                               Patch(facecolor='wheat', edgecolor='wheat', alpha=0.4, label='Labanotation Frame Blocks'),
+                               Patch(facecolor='tan', edgecolor='tan', alpha=0.4, label='Labanotation Transition Block'),
+                               Line2D([0], [0], marker='o', color='w', label='Peaks', markerfacecolor='slategrey', markersize=10),
+                               Line2D([0], [0], marker='o', color='w', label='Inflection', markerfacecolor='k', markersize=10),
+                               Line2D([0], [0], marker='*', color='w', label='Labanotation Key Frames', markerfacecolor='g', markersize=16)]
+
+            self.ax.legend(handles=legend_elements, bbox_to_anchor=(0, 1), loc=3, ncol=7) # , mode='expand', borderaxespad=0)
+        
+        print(kf)
         self.updateEnergyPlotAndLabanScore(True)
-        self.highlightLabanotationRegions(self.unfilteredLaban, 
-            (min(min(energy_hands), min(energy_feet), min(energy_head), min(energy_torso)) - 0.5, 
-            max(max(energy_hands), max(energy_feet), max(energy_head), max(energy_torso)) + 0.5))
+        self.highlightLabanotationRegions(self.unfilteredLaban, (min(e_comb_L)-0.5, max(e_comb_L)+0.5))
+        # additional energy markers
+        if (self.ax != None):
+            corner,_,_ = cl.peak_dect(e_comb_L, y_thres=0)
+            self.ax.plot(e_comb_L, '.', color = 'slategrey', mew=3, markersize=14, markevery=corner) # bottom
 
-        return self.unfilteredTimeS, self.unfilteredLaban, all_indices
+            infl = ac.inflection(e_comb_L)
+            self.ax.plot(e_comb_L, '.', color = 'k', mew=3, markersize=12, markevery=infl)
 
+        self.setSelectedFrameMarker()
+
+        return (self.timeS, self.all_laban, self.keyframes)
 
     #------------------------------------------------------------------------------
     # plot different colors for each labanotation region.
@@ -375,26 +396,25 @@ class Algorithm:
         if self.ax is None:
             return
 
+        # Split laban into segments (using your existing splitting logic)
         laban_sect = ac.split(laban)
         cnt = len(laban)
 
-        indices_hands = kpex.gaussian_pecdec(self.y_data['hands'])
-        indices_feet = kpex.gaussian_pecdec(self.y_data['feet'])
-        indices_head = kpex.gaussian_pecdec(self.y_data['head'])
-        indices_torso = kpex.gaussian_pecdec(self.y_data['torso'])
+        # Compute keyframes from the aggregated energy function
+        # indices = kpex.gaussian_pecdec(self.y_data['combined'])
+        indices= self.keyframes
+        # For each laban segment, choose a color based on whether the start is in the aggregated keyframes.
+        for i in range(len(self.jointFrames)):
+            start = i
+            end = i+1
 
-        all_indices = sorted(set(indices_hands) | set(indices_feet) | set(indices_head) | set(indices_torso))
-
-        for i in range(len(laban_sect)):
-            start = laban_sect[i][0]
-            end = laban_sect[i][1]
-
-            c = 'wheat' if start not in all_indices else 'tan'
+            c = 'wheat' if start not in indices else 'tan'
             a = 0.4
 
+            # Determine width: for the last segment, extend to the end of the sequence
             x_width = end - start + 0.5 if i < len(laban_sect) - 1 else cnt - start + 0.25
 
-            p = patches.Rectangle((start-0.25, y[0]), x_width, y[1]-y[0], alpha=a, color=c)
+            p = patches.Rectangle((start - 0.25, y[0]), x_width, y[1] - y[0], alpha=a, color=c)
             self.ax.add_patch(p)
 
 
@@ -437,12 +457,7 @@ class Algorithm:
         self.all_laban = []
 
         # Ensure indices come from all energy functions
-        indices_hands = kpex.gaussian_pecdec(self.y_data['hands'])
-        indices_feet = kpex.gaussian_pecdec(self.y_data['feet'])
-        indices_head = kpex.gaussian_pecdec(self.y_data['head'])
-        indices_torso = kpex.gaussian_pecdec(self.y_data['torso'])
-
-        all_indices = sorted(set(indices_hands) | set(indices_feet) | set(indices_head) | set(indices_torso))
+        all_indices = self.keyframes#kpex.gaussian_pecdec(self.y_data['combined'])
 
         idx = 0
         cnt = len(all_indices)
@@ -497,59 +512,41 @@ class Algorithm:
     # update energy markers and lines, and labanotation score
     #
     def updateEnergyPlotAndLabanScore(self, updateLabanScore=False):
-        if (self.ax != None):
+        if self.ax is not None:
             if not self.points:
                 return
 
-            x, y = zip(*sorted(self.points.items()))
+            # Sort keyframe indices from the aggregated energy function.
+            x = sorted(self.points.keys())
 
-            if not self.line_ene:
-                # Add new plots for each body part
-                self.line_ene_hands, = self.ax.plot(self.y_data['hands'], '*', color='r', mew=3, markersize=14, markevery=list(x))
-                self.line_ene_feet, = self.ax.plot(self.y_data['feet'], '*', color='b', mew=3, markersize=14, markevery=list(x))
-                self.line_ene_head, = self.ax.plot(self.y_data['head'], '*', color='g', mew=3, markersize=14, markevery=list(x))
-                self.line_ene_torso, = self.ax.plot(self.y_data['torso'], '*', color='purple', mew=3, markersize=14, markevery=list(x))
+            # Plot aggregated energy keyframe markers:
+            if not hasattr(self, 'line_ene_combined') or self.line_ene_combined is None:
+                self.line_ene_combined, = self.ax.plot(
+                    self.y_data['combined'], '*', color='k', mew=3, markersize=14, markevery=list(x)
+                )
             else:
-                # Update current plots
-                self.line_ene_hands.set_data(range(len(self.y_data['hands'])), self.y_data['hands'])
-                self.line_ene_feet.set_data(range(len(self.y_data['feet'])), self.y_data['feet'])
-                self.line_ene_head.set_data(range(len(self.y_data['head'])), self.y_data['head'])
-                self.line_ene_torso.set_data(range(len(self.y_data['torso'])), self.y_data['torso'])
+                self.line_ene_combined.set_data(range(len(self.y_data['combined'])), self.y_data['combined'])
+                self.line_ene_combined.set_markevery(list(x))
+                self.ax.draw_artist(self.line_ene_combined)
 
-                self.line_ene_hands.set_markevery(list(x))
-                self.line_ene_feet.set_markevery(list(x))
-                self.line_ene_head.set_markevery(list(x))
-                self.line_ene_torso.set_markevery(list(x))
-
-                self.ax.draw_artist(self.line_ene_hands)
-                self.ax.draw_artist(self.line_ene_feet)
-                self.ax.draw_artist(self.line_ene_head)
-                self.ax.draw_artist(self.line_ene_torso)
-                self.line_ene=True
-
-            # plot vertical lines to denote labanotation keyframes
-            xs = list(x)
-            xs = np.array((xs, ) if np.isscalar(xs) else xs, copy=False)
+            # Plot vertical lines at keyframe locations:
+            xs = np.array(list(x))
             lims = self.ax.get_ylim()
-            x_points = np.repeat(xs[:, None], repeats=3, axis=1).flatten()
-            y_points = np.repeat(np.array(lims + (np.nan, ))[None, :], repeats=len(xs), axis=0).flatten()
-            if not self.vlines:
-                # Add new plot
-                self.vlines, = self.ax.plot(x_points, y_points, scaley = False, color='g')
+            # Create points for vertical lines for each keyframe index.
+            x_points = np.repeat(xs[:, None], 3, axis=1).flatten()
+            y_points = np.repeat(np.array(list(lims) + [np.nan])[None, :], len(xs), axis=0).flatten()
+            if not hasattr(self, 'vlines') or self.vlines is None:
+                self.vlines, = self.ax.plot(x_points, y_points, scaley=False, color='g')
             else:
-                # Update current plot
                 self.vlines.set_data(x_points, y_points)
                 self.ax.draw_artist(self.vlines)
 
             self.ax.figure.canvas.draw_idle()
 
-        # update laban score
-        if (updateLabanScore) and (self.points):
-            tmp_indices, _ = zip(*sorted(self.points.items()))
-            new_indices = list(tmp_indices)
-
+        # Optionally update Labanotation score if requested.
+        if updateLabanScore and self.points:
+            new_indices = sorted(self.points.keys())
             self.updateLaban(new_indices)
-
             settings.application.updateLaban(self.timeS, self.all_laban)
 
     #------------------------------------------------------------------------------
@@ -621,7 +618,11 @@ class Algorithm:
     #------------------------------------------------------------------------------
     #
     def saveToJSON(self):
-        filePath = settings.checkFileAlreadyExists(settings.application.outputFilePathJson, fileExt=".json", fileTypes=[('json files', '.json'), ('all files', '.*')])
+        filePath = settings.checkFileAlreadyExists(
+            settings.application.outputFilePathJson, 
+            fileExt=".json", 
+            fileTypes=[('json files', '.json'), ('all files', '.*')]
+        )
         if filePath is None:
             return
 
@@ -630,18 +631,19 @@ class Algorithm:
         labanjson = OrderedDict()
         labanjson[file_name] = self.labandata
 
-        # Add energy functions to JSON
-        labanjson["energy_hands"] = list(self.y_data['hands'])
-        labanjson["energy_feet"] = list(self.y_data['feet'])
-        labanjson["energy_head"] = list(self.y_data['head'])
-        labanjson["energy_torso"] = list(self.y_data['torso'])
+        # Save the aggregated energy function to JSON.
+        labanjson["energy_combined"] = list(self.y_data['combined'])
 
         try:
             with open(filePath, 'w') as file:
                 json.dump(labanjson, file, indent=2)
-                settings.application.logMessage(f"Labanotation json script saved to '{settings.beautifyPath(filePath)}'")
+                settings.application.logMessage(
+                    f"Labanotation json script saved to '{settings.beautifyPath(filePath)}'"
+                )
         except Exception as e:
-            settings.application.logMessage(f"Exception saving Labanotation json script: {str(e)}")
+            settings.application.logMessage(
+                f"Exception saving Labanotation json script: {str(e)}"
+            )
 
     #------------------------------------------------------------------------------
     #

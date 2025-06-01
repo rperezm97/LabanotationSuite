@@ -5,6 +5,8 @@
 
 # **LabanEditor User Manual**
 
+NOTE: this a fork expanded for whole body motion, for Notation of Amass and Mediapipe data. For more info, refer to https://github.com/Physical-User-Modeling-PhyUM/MoRTE-Laban
+
 ## Introduction
 LabanEditor is a Python script application that loads a Kinect joint .csv file representing a human gesture, provides algorithmic options for automatically extracting keyframes from the gesture that correspond Labanotation data, and provides a graphical user interface for selection and modification of the extracted keyframes. Additionally, it saves the resulting gesture data in a .json file format suitable for controlling robots running a gesture interpretation driver, as well as .png graphic file renderings of the charts and diagrams presented in the user interface.
 

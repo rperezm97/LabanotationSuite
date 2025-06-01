@@ -264,13 +264,13 @@ class application:
             pass#self.jointFrames= mediapipe2kinect.loadAMASSData(self.inputFilePath)
         else:
             raise TypeError("inputType not recognized")
-        self.logMessage('Loaded ' + str(len(self.jointFrames)) + ' Kinect data frames.')
+        self.logMessage('Loaded ' + str(len(self.jointFrames[0])) + ' Kinect data frames.')
         if (len(self.jointFrames) < 1):
             self.logMessage('No Kinect data frames to process.')
             return
 
         if (self.graphSkeleton is not None):
-            self.graphSkeleton.setJointFrames(self.jointFrames)
+            self.graphSkeleton.setJointFrames(self.jointFrames[0])
 
     #------------------------------------------------------------------------------
     #
@@ -299,7 +299,7 @@ class application:
 
         ax = self.graphFilter.ax if (self.graphFilter != None) else None
 
-        [self.timeS, self.all_laban, self.keyframes] = self.labanotation.applyAlgorithm(ax, self.jointFrames, self.algorithm, forceReset,
+        [ self.timeS,self.all_laban,self.keyframes] = self.labanotation.applyAlgorithm(ax, self.jointFrames, self.algorithm, forceReset,
                                                                         base_rotation_style=self.base_rotation_style)
 
         # share labanotation with skeleton graph and laban visualizer
@@ -307,13 +307,15 @@ class application:
             self.graphSkeleton.setLabanotation(self.timeS, self.all_laban)
 
         if (self.graphLaban != None):
-            self.graphLaban.setLabanotation(self.timeS, self.all_laban)
+            self.graphLaban.setLabanotation([1+i*1000/120 for i in range(len(self.jointFrames[0]))], self.all_laban, self.keyframes)
 
         if (self.graphFilter != None):
             self.graphFilter.fig.canvas.draw_idle()
         
         
         ecm, laban_keyframes= self.graphSkeleton.calculate_ecm(self.keyframes)
+        # Save to NPZ for SMPL-compatible workflows. TODO
+        # np.savez("exported_smpl_motion.npz", smpl_joints=smpl_joints)
 
     #------------------------------------------------------------------------------
     #
@@ -325,7 +327,7 @@ class application:
             self.graphSkeleton.setLabanotation(self.timeS, self.all_laban)
 
         if (self.graphLaban != None):
-            self.graphLaban.setLabanotation(self.timeS, self.all_laban)
+            self.graphLaban.setLabanotation([1+i*1000/120 for i in range(len(self.jointFrames[0]))], self.all_laban, keyframes=self.keyframes)
 
     #------------------------------------------------------------------------------
     #

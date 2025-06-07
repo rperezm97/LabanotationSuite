@@ -154,7 +154,7 @@ class Algorithm:
         self.calculateUnfilteredLaban(base_rotation_style=base_rotation_style)
         self.timeS, self.all_laban, self.keyframes=self.totalEnergy(jointD[1])
 
-        self.all_laban = kbs_laban.run_classification(jointD[1:], self.keyframes)
+        self.all_laban = kbs_laban.run_classification(settings.application.outputFilePathOwl, jointD[1:], self.keyframes)
 
         # return self.totalEnergy()
 
@@ -425,7 +425,7 @@ class Algorithm:
         Generates a structured Labanotation keyframe data dictionary for full-body motion.
         """
         data = OrderedDict()
-        data["start time"] = [str(time)]
+        data["start time"] = [str(time/120)]
         data["duration"] = [str(dur)]
 
         # ➤ Extract motion direction and level for each body part (following staff order)
@@ -630,7 +630,7 @@ class Algorithm:
 
         labanjson = OrderedDict()
         labanjson[file_name] = self.labandata
-
+    
         # Save the aggregated energy function to JSON.
         labanjson["energy_combined"] = list(self.y_data['combined'])
 

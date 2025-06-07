@@ -71,9 +71,11 @@ class application:
 
         self.parseArguments()
 
+        self.graphSkeleton = graphSkeleton.graph3D(filePath= self.inputFilePath)
+        
         if (self.fShowGUI):
             # create a graph for the 3d skeletons
-            self.graphSkeleton = graphSkeleton.graph3D(filePath= self.inputFilePath)
+            
 
             # create a figure for the filter graph
             self.graphFilter = graphFilter.graphFilter()
@@ -183,6 +185,7 @@ class application:
         self.outputFilePathTxt = os.path.join(self.outputFolder, self.outputName + '.txt')
         self.outputFilePathJson = os.path.join(self.outputFolder, self.outputName + '.json')
         self.outputFilePathImg = os.path.join(self.outputFolder, self.outputName + '.png')
+        self.outputFilePathOwl = os.path.join(self.outputFolder, self.outputName + '_laban.owl')
 
         print("FP=",self.inputFilePath)
         # ✅ Generate Beautified Paths
@@ -307,12 +310,12 @@ class application:
             self.graphSkeleton.setLabanotation(self.timeS, self.all_laban)
 
         if (self.graphLaban != None):
-            self.graphLaban.setLabanotation([1+i*1000/120 for i in range(len(self.jointFrames[0]))], self.all_laban, self.keyframes)
+            self.graphLaban.setLabanotation([(1+i)*1000/120 for i in range(len(self.jointFrames[0]))], self.all_laban, self.keyframes)
 
         if (self.graphFilter != None):
             self.graphFilter.fig.canvas.draw_idle()
         
-        
+        print(self.keyframes)
         ecm, laban_keyframes= self.graphSkeleton.calculate_ecm(self.keyframes)
         # Save to NPZ for SMPL-compatible workflows. TODO
         # np.savez("exported_smpl_motion.npz", smpl_joints=smpl_joints)
@@ -327,7 +330,7 @@ class application:
             self.graphSkeleton.setLabanotation(self.timeS, self.all_laban)
 
         if (self.graphLaban != None):
-            self.graphLaban.setLabanotation([1+i*1000/120 for i in range(len(self.jointFrames[0]))], self.all_laban, keyframes=self.keyframes)
+            self.graphLaban.setLabanotation([(1+i)*1000/120 for i in range(len(self.jointFrames[0]))], self.all_laban, keyframes=self.keyframes)
 
     #------------------------------------------------------------------------------
     #
@@ -413,7 +416,7 @@ class application:
         # apply selected algorithm
         self.applyAlgoritm(self.algorithm, forceReset)
 
-        if True :#(self.fShowGUI):
+        if (self.fShowGUI):
             # render skeleton(s) at time 0
             self.selectTime(0)
         else:

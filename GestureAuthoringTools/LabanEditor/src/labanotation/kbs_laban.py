@@ -1,45 +1,13 @@
 
-
-
-import os
-import torch
 import numpy as np
 from experta import *
 from experta import utils
 from . import physical_indices as pi
 # Owlready2 ontology load/create
-from owlready2 import get_ontology, sync_reasoner, Thing, DataProperty, ObjectProperty, FunctionalProperty
-from numpy import array
-#------------------------------------------------------------------------------
-# Ontology load/create
-#------------------------------------------------------------------------------
-def load_or_create_ontology(path="laban.owl"):
-    if os.path.exists(path):
-        onto = get_ontology(f"file://{os.path.abspath(path)}").load()
-    else:
-        onto = get_ontology(f"file://{os.path.abspath(path)}")
-        with onto:
-#             class MotionSegment(Thing): pass
-            class Symbol(Thing): pass
-            class EffortQuality(Thing): pass
-            class TimeQuality(Thing): pass
-            class SpaceQuality(Thing): pass
-            class FlowQuality(Thing): pass
-            class Strong(EffortQuality): pass
-            class Light(EffortQuality): pass
-            class Sudden(TimeQuality): pass
-            class Sustained(TimeQuality): pass
-            class Direct(SpaceQuality): pass
-            class Indirect(SpaceQuality): pass
-            class BoundFlow(FlowQuality): pass
-            class FreeFlow(FlowQuality): pass
-            class jointName(DataProperty, FunctionalProperty): domain=[Symbol]; range=[str]
-            class directionName(DataProperty, FunctionalProperty): domain=[Symbol]; range=[str]
-            class levelName(DataProperty, FunctionalProperty): domain=[Symbol]; range=[str]
-        onto.save(file=path)
-    return onto
+from . import ontology_laban as laban_onto
+from owlready2 import sync_reasoner_pellet
 
-# onto = load_or_create_ontology()
+
 
 #------------------------------------------------------------------------------
 # Fact definition (includes kinematic deltas and foot contact)
@@ -158,18 +126,22 @@ class MotionClassifier(KnowledgeEngine):
       5. Lifecycle: create/extend/switch symbols
       6. When no frames left → aggregate Staff → halt
     """
-    
-    JOINT_NAMES =[
-                    "elbowL", "wristL",
-                    "shoulderL",
-                    "ankleL", "footL", "kneeL",
-                    "kneeR", "footR", "ankleR",
-                    "shoulderR",
-                    "wristR", "elbowR",
-                    "head"
-                ]
-    TH = {jn:[0,22.5,67.5,112.5,157.5,180] for jn in JOINT_NAMES }
-    STEP_TH = 0.05 ; JUMP_TH = 0.2; ROT_TH = 15
+    def __init__(self, output_onto_path, onto_path="laban.owl"):
+        super().__init__()
+        self.onto_output_path = output_onto_path
+        self.onto = laban_onto.load_or_create_ontology(path=output_onto_path)
+         
+        self.JOINT_NAMES =[
+                        "elbowL", "wristL",
+                        "shoulderL",
+                        "ankleL", "footL", "kneeL",
+                        "kneeR", "footR", "ankleR",
+                        "shoulderR",
+                        "wristR", "elbowR",
+                        "head"
+                    ]
+        self.TH = {jn:[0,22.5,67.5,112.5,157.5,180] for jn in self.JOINT_NAMES }
+        self.STEP_TH = 0.05 ; self.JUMP_TH = 0.2; self.ROT_TH = 15
 
     @DefFacts()
     def _initialize(self):
@@ -200,28 +172,34 @@ class MotionClassifier(KnowledgeEngine):
         Consume the head of the frames list to declare a CurrentMotionSegment,
         and update KeyframesLeft to the tail.
         """
-        next_kf, *rest = frames
-        print(f"\n Classification for frame {next_kf}")
+        first_kf, *rest = frames
+        print(f"\n Classification for frame {first_kf}")
       
-        self.declare(CurrentMotionSegment( frame_id=next_kf,
-                                            phi=[angles[next_kf][joint_id][1] for joint_id in range(13)],
-                                            theta=[angles[next_kf][joint_id][0] for joint_id in range(13)],
-                                            translation = translation[next_kf],
-                                            rotation = rotation[next_kf],
+        self.declare(CurrentMotionSegment( frame_id=first_kf,
+                                            phi=[angles[first_kf][joint_id][1] for joint_id in range(13)],
+                                            theta=[angles[first_kf][joint_id][0] for joint_id in range(13)],
+                                            translation = translation[first_kf],
+                                            rotation = rotation[first_kf],
                                             lma_indices={},
-                                            relative_feet_height = relative_feet_heights[next_kf],#TODO,
+                                            relative_feet_height = relative_feet_heights[first_kf],#TODO,
                                             
                                             joints_left=self.JOINT_NAMES))
-        self.declare(Support(frame_id=next_kf,
-                             base_translation=translation[next_kf],
-                             base_rotation=rotation[next_kf],
+        self.declare(Support(frame_id=first_kf,
+                             base_translation=translation[first_kf],
+                             base_rotation=rotation[first_kf],
                              direction="None",
                              motion="None",
                              side="None",
                              rot_support="None"))
         self.modify(kf, frames=rest)
         self.declare(Staff({joint:[] for joint in self.JOINT_NAMES+["support_type","rotation"]}))
+        with self.onto:
+            # Create the Staff individual
+            staff = self.onto.Staff("MainStaff")
 
+            # Assign start and end time from the first and last frames
+            staff.hasStartTime = (1+frames[0])/120
+            staff.hasEndTime = (1+frames[-1])/120
 
     
     @Rule(
@@ -392,60 +370,66 @@ class MotionClassifier(KnowledgeEngine):
                                  value=MATCH.direc_value),
             AS.lvl << Level(jointName=MATCH.joint_name,
                                  value=MATCH.lvl_value),  
-            # AS.sup << Support(frame_id=MATCH.frame_id,
-            #                  direction= ~L('None'),
-            #                 #  motion= ~L('None'),
-            #                 #  side= ~L('None'),
-            #              ),
+            
             AS.sym <<Symbol(jointName=MATCH.joint_name, 
                             start=MATCH.start,
                             direction= MATCH.sym_direction ,
+                            
                             level= MATCH.sym_level
                             ),
             TEST(lambda start,frame_id : start <= frame_id),
             (TEST(lambda sym_direction, direc_value:sym_direction != direc_value) |
             TEST(lambda sym_level, lvl_value: sym_level!= lvl_value)),
             AS.staff<< Staff())
-    def move_to_next_symbol(self,js, direc,lvl, sym, joint_name, frame_id, direc_value,lvl_value, staff):
+    def move_to_next_symbol(self, js, direc, lvl, sym, joint_name, start, frame_id, direc_value, lvl_value, staff):
+        # Retract previous facts
         self.retract(js)
         self.retract(direc)
         self.retract(lvl)
         self.retract(sym)
-        
-        self.declare(Symbol(jointName=joint_name,
-                            start=frame_id,
-                            direction=direc_value, 
-                            
-                            level= lvl_value,
-                            duration=1))
-        
-         # update staff
+
+        # Create new symbol in ontology
+        with self.onto:
+            symbol = self.onto.BasicSymbol(f"{joint_name}_basic_symbol_{start}")
+            symbol.hasJointType = joint_name
+            symbol.hasDirection = direc_value
+            symbol.hasLevel = lvl_value
+            symbol.hasStartTime =1+  start*10/120 
+            symbol.hasEndTime = 1+ frame_id   # assuming duration=1 for simplicity
+
+        # Update staff
         self.retract(staff)
-        staff_data=utils.unfreeze(dict(staff[0]))
-        staff_data[joint_name].append([direc_value,lvl_value])
+        staff_data = utils.unfreeze(dict(staff[0]))
+        staff_data[joint_name].append([direc_value, lvl_value])
         self.declare(Staff(staff_data))
         
         # print(f"ID: {frame_id} Classification of {joint_name} successful, creating symbol")
-    
     @Rule(
-            AS.sym << Symbol(jointName=MATCH.joint_name),
-            NOT(JointSphere()),
-            NOT(CurrentMotionSegment()),
-            KeyframesLeft(frames=P(lambda frames: len(frames) == 0)),
-            AS.staff<< Staff()
-                            )
-    def finish_symbols(self, sym, joint_name, staff):
+        # When frames list is empty and no pending facts, signal end
+        # Pull next frame only when no pending segmentation/classification facts remain
+        KeyframesLeft(frames=P(lambda frames: len(frames) == 0)),
         
+        AS.seg<< CurrentMotionSegment(frame_id=MATCH.frame_id,
+                                      joints_left=P(lambda joints_left: len(joints_left) == 0)),
+        AS.sym << Symbol(jointName=MATCH.joint_name,
+                            start=MATCH.start,
+                            direction= MATCH.sym_direction ,
+                            
+                            level= MATCH.sym_level),
+        NOT(JointSphere()),
+        AS.staff<< Staff()
+                            )
+    def finish_symbols(self, sym, joint_name, start,sym_direction,sym_level, frame_id):
+        with self.onto:
+            symbol = self.onto.BasicSymbol(f"{joint_name}_basic_symbol_{start}")
+            symbol.hasJointType = joint_name
+            symbol.hasDirection = sym_direction
+            symbol.hasLevel = sym_level
+            symbol.hasStartTime = (1+ start)/120
+            symbol.hasEndTime =(1+ frame_id)/120 
+
         self.retract(sym)
-         # update staff
-         
-        # self.retract(staff)
-        # sym_data = dict(sym)
-        # staff_data=utils.unfreeze(dict(staff[0]))
-        # staff_data[joint_name].append([sym_data["start"],sym_data['direction'],sym_data['level']])
-    
-        # self.declare(Staff(staff_data))
-        # print(f"END:Pushing last symbol {joint_name} to staff")
+        
     
     @Rule(
         # When frames list is empty and no pending facts, signal end
@@ -458,11 +442,8 @@ class MotionClassifier(KnowledgeEngine):
                             motion= MATCH.motion & ~L('None'),
                              side= MATCH.side & ~L('None'),
                              rot_support = MATCH.rot_support & ~L("None")
-            #              ),
-            #              ),
-                            # motion=Field(str)
-                            # side=Field(str)
                         ),
+        NOT(Symbol()),
         AS.staff<< Staff()
     )
     def delete_last_motion_seg(self,seg, staff, direction, motion,side, rot_support):
@@ -477,6 +458,8 @@ class MotionClassifier(KnowledgeEngine):
         
         staff_data["rotation"].append([rot_support])
         self.declare(Staff(staff_data))
+       
+
       
     
     # When no joints left, check if there are any pending frames
@@ -491,8 +474,14 @@ class MotionClassifier(KnowledgeEngine):
         NOT(Symbol())
     )
     def end_classification(self,data):
-        print("No keyframes left, ending classification.")
+        print("No keyframes left, ending classification.\n Reasoning ontology")
         self.retract(data)
+        
+       
+        # sync_reasoner_pellet(infer_property_values = True, infer_data_property_values = True)
+
+        self.onto.save(file=self.onto_output_path)
+        
         self.declare(Fact(end=True))
         
     
@@ -1131,7 +1120,7 @@ class MotionClassifier(KnowledgeEngine):
         # 4) Modify the Support fact’s base_rotation in working memory
         self.modify(sup, base_rotation=new_base, rot_support=str(rotation))
     
-def run_classification(joints_info, keyframes, fps=120):
+def run_classification(output_onto_path,joints_info, keyframes, fps=120):
     """
     frames_list: list of dicts with keys: frame_id, phi, theta,
       translation(np.array), rotation(float), footL_y, footR_y
@@ -1139,9 +1128,9 @@ def run_classification(joints_info, keyframes, fps=120):
     """
     joints_vector, partial_translation, partial_rotation=joints_info
     keyframes=[0]+keyframes+[joints_vector.shape[0]-1]
-    engine = MotionClassifier()
+    engine = MotionClassifier(output_onto_path)
     engine.reset()
-    times=[int(1+ i*1000/fps) for i in range(len(joints_vector))]
+    times=[(1+i)/fps for i in range(len(joints_vector))]
     spherical, lma, relative_feet_heights=pi.calculate_physical_indices(joints_vector, keyframes, times, 120)
     engine.declare(KeyframesLeft(frames=keyframes))
     
@@ -1159,7 +1148,6 @@ def run_classification(joints_info, keyframes, fps=120):
     engine.run()
     
     # print(engine.facts)
-    print("done")
     staff_list=[]
     staff = []
     for fact in engine.facts.values():
@@ -1169,7 +1157,7 @@ def run_classification(joints_info, keyframes, fps=120):
             break
     
     # collect per-joint latest symbols
-    staff_list=np.array(list(staff.values())).T.tolist()
+    staff_list=(np.array(list(staff.values())).T).tolist()
     
     # staff.supports = [(sup['direction'], sup['motion'], sup['side']) for sup in engine.facts.values() if isinstance(sup, SupportSymbol)]
     return staff_list

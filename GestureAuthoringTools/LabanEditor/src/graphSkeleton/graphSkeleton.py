@@ -1061,9 +1061,9 @@ class graph3D:
         
         # Assume you're using the same skeleton definition for both
         parents = [j[3] for j in self.joints]
-        plot_skeletons(original_joints[-5,:,:]*self.smpl_scale, laban_joints[-5,:,:]*self.smpl_scale, parents)
+        # plot_skeletons(original_joints[-5,:,:]*self.smpl_scale, laban_joints[-5,:,:]*self.smpl_scale, parents)
 
-        return mse_per_joint, laban_joints  
+        return mse_per_joint, laban_joints 
 
     #------------------------------------------------------------------------------
     #

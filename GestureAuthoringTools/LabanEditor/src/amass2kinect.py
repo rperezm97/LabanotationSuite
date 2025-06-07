@@ -135,7 +135,7 @@ def convert_to_cannon(joint_positions):
     return joint_positions_canon_np, relative_trans_np, relative_rot_np
 
 
-def loadAMASSData(filePath, fps=120, device='cpu', max_frames=2000):
+def loadAMASSData(filePath, fps=120, device='cpu', max_frames=20000):
     """
     Loads AMASS motion data and converts it to Kinect-compatible format using PyTorch optimizations.
     

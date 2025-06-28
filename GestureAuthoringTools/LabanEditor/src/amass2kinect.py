@@ -2,7 +2,6 @@
 import os,math,copy
 import numpy as np
 import torch
-import settings
 from tqdm import tqdm
 
 import os
@@ -210,9 +209,8 @@ def loadAMASSData(filePath, fps=120, device='cpu', max_frames=20000):
     # ✅ Visualize 5 frames
     # plot_skeleton(motion_data, num_frames=5)
 
-    print(type(motion_data))
+    # print(num_frames, num_frames/120)
     return motion_data,joint_positions_canon[:num_frames], relative_trans[:num_frames], relative_root[:num_frames]
-
 
 
 # def apply_transformation(joint_positions, T, R):

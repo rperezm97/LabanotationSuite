@@ -42,7 +42,7 @@ class application:
     outputFilePathJson = None
     outputFilePathImg = None
     outputName = None
-    fShowGUI = True
+    fShowGUI = False
 
     # objects
     guiMenu = None
@@ -106,7 +106,7 @@ class application:
         parser.add_argument('--algorithm', default='total', choices=['total', 'parallel', 'naive'], help='select the Laban key frame extraction algorithm: "total" total energy, "parallel" parallel energy, "naive" treat each Kinect frame as a keyframe')
         parser.add_argument('--base-rotation-style', default='every',
                             choices=['every', 'first'], help='select the base rotation style. "every": update base rotation every frame. "first": use the base rotation of the first frame.')
-        parser.add_argument('--inputfile', default="jump", help='Data input file')
+        parser.add_argument('--inputfile', default="0014_knocking2_dataset", help='Data input file')
         parser.add_argument('--inputType', default="amass",
                             choices=['kinect', 'amass', 'mediapipe'], help='process input as kinect, amass or mediapipe data.')
         parser.add_argument('--nogui', action='store_true', default=False, help='process Kinect data but don\'t display interactive GUI')
@@ -315,8 +315,14 @@ class application:
         if (self.graphFilter != None):
             self.graphFilter.fig.canvas.draw_idle()
         
-        print(self.keyframes)
-        ecm, laban_keyframes= self.graphSkeleton.calculate_ecm(self.keyframes)
+        # print(self.keyframes)
+        pjpe, laban_keyframes= self.graphSkeleton.calculate_pjpe(self.keyframes)
+        
+        np.savez(os.path.join(self.outputFolder, self.outputName+'_eval_data.npz'), 
+                 keyframes=self.keyframes, 
+                 pjpe=pjpe)
+
+        # return ecm_per_joint, traslation_error
         # Save to NPZ for SMPL-compatible workflows. TODO
         # np.savez("exported_smpl_motion.npz", smpl_joints=smpl_joints)
 
@@ -336,6 +342,7 @@ class application:
     #
     def saveJSON(self):
         if (self.labanotation != None):
+            
             try:
                 self.labanotation.saveToJSON()
             except Exception as e:

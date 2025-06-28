@@ -900,7 +900,7 @@ class graph3D:
             self.parents[child_idx] = parent_idx
 
 
-    def calculate_ecm(self, keyframes):
+    def calculate_pjpe(self, keyframes):
         
         original_joints=np.zeros((len(keyframes),25, 3))
         laban_joints=original_joints.copy()
@@ -1018,12 +1018,18 @@ class graph3D:
         laban_joints/=self.smpl_scale
         
         # Promediado sobre frames y ejes (x,y,z)
-        mse_per_joint = np.around(np.mean((original - laban_joints) ** 2, axis=(0, 2)) ,
-                                  3)
-        print("MSE per joint")
-        for joint, error in zip(self.joint_names_ordered, mse_per_joint):
+        # orig_rel = original - original[:, 0:1, :]
+        # laban_rel = laban_joints - laban_joints[:, 0:1, :]
+        # Compute per-joint Euclidean distance, average over all frames and joints
+        pjpe = np.around(np.linalg.norm(original - laban_joints, axis=-1),3)
+        # gt_root = original[:, 0, :]
+        # pred_root = laban_joints[:, 0, :]
+        # trans_error = np.mean(np.linalg.norm(gt_root - pred_root, axis=-1))
+        print("Per joint position error (averaged along frames)")
+        for joint, error in zip(self.joint_names_ordered, np.mean(pjpe,0)):
             print(joint, " : ", error) 
-        print("Total MSE:", np.mean(mse_per_joint))
+        print("Mean per joint position error (averaged along frames):", np.mean(np.mean(pjpe,0)))
+        # print("Translation_error", trans_error)
         
         def plot_skeletons(original_joints, laban_joints, parents):
             fig = plt.figure(figsize=(12, 6))
@@ -1063,7 +1069,7 @@ class graph3D:
         parents = [j[3] for j in self.joints]
         # plot_skeletons(original_joints[-5,:,:]*self.smpl_scale, laban_joints[-5,:,:]*self.smpl_scale, parents)
 
-        return mse_per_joint, laban_joints 
+        return pjpe, laban_joints 
 
     #------------------------------------------------------------------------------
     #

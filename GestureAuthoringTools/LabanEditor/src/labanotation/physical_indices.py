@@ -42,26 +42,24 @@ def smooth_positions(joint_positions, sigma, window_size):
     """
     Apply Gaussian smoothing along time for each joint.
     """
-    truncate = (window_size - 1) / (2 * sigma)
     return gaussian_filter1d(
         joint_positions,
         sigma=sigma,
-        truncate=truncate,
-        axis=0,
-        mode='reflect'
+        axis=0
     )
 
 # -------------------------------------------------------------
-def compute_lma_indices(jp, keyframes, times):
+def compute_lma_indices(jp, keyframes, times=None):
     """
     Compute global LMA Effort descriptors between keyframes using all joints and timestamps.
     Returns a list of dicts with keys 'weight', 'time', 'space', 'flow'.
     """
-    T_total, J, _ = jp.shape
+    n_frames, n_joints, _ = jp.shape
     frames =  [kf for kf in keyframes]
     segs = []
     eps = 1e-6
-
+    if times is None:
+        times=np.arange(0,n_frames)/120
     for i in range(len(frames) - 1):
         s, e = frames[i], frames[i+1]
         seg = jp[s:e+1]
@@ -90,7 +88,7 @@ def compute_lma_indices(jp, keyframes, times):
         disp = np.linalg.norm(seg[1:] - seg[:-1], axis=2)
         net = np.linalg.norm(seg[-1] - seg[0], axis=1)
         S = 0
-        for j in range(J):
+        for j in range(n_joints):
             path = np.sum(disp[:, j])
             denom = net[j] if net[j] > eps else path
             S += path / denom
@@ -292,9 +290,9 @@ def calculate_physical_indices(joint_positions, keyframes, times, data_fps,
 if __name__ == '__main__':
     # Test with fake data
     T = 100
-    J = max(AMASS_TO_KINECT_MAP.values()) + 1
+    n_joints = max(AMASS_TO_KINECT_MAP.values()) + 1
 
-    joint_positions = np.random.rand(T, J, 3)
+    joint_positions = np.random.rand(T, n_joints, 3)
     times = np.linspace(0, 1, T)
     keyframes = [20, 40, 60, 80]
     data_fps = 120

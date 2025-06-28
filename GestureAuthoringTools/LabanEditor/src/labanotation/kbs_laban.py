@@ -198,8 +198,9 @@ class MotionClassifier(KnowledgeEngine):
             staff = self.onto.Staff("MainStaff")
 
             # Assign start and end time from the first and last frames
-            staff.hasStartTime = (1+frames[0])/120
-            staff.hasEndTime = (1+frames[-1])/120
+            staff.StartTime = (1+frames[0])/120
+            staff.EndTime = (1+frames[-1])/120
+        print(frames)
 
     
     @Rule(
@@ -391,12 +392,11 @@ class MotionClassifier(KnowledgeEngine):
         # Create new symbol in ontology
         with self.onto:
             symbol = self.onto.BasicSymbol(f"{joint_name}_basic_symbol_{start}")
-            symbol.hasJointType = joint_name
-            symbol.hasDirection = direc_value
-            symbol.hasLevel = lvl_value
-            symbol.hasStartTime =1+  start*10/120 
-            symbol.hasEndTime = 1+ frame_id   # assuming duration=1 for simplicity
-
+            symbol.jointType = joint_name
+            symbol.direction = direc_value
+            symbol.level = lvl_value
+            symbol.startTime =(start)/120 
+            symbol.endTime = (frame_id)/120   # assuming duration=1 for simplicity
         # Update staff
         self.retract(staff)
         staff_data = utils.unfreeze(dict(staff[0]))
@@ -422,11 +422,11 @@ class MotionClassifier(KnowledgeEngine):
     def finish_symbols(self, sym, joint_name, start,sym_direction,sym_level, frame_id):
         with self.onto:
             symbol = self.onto.BasicSymbol(f"{joint_name}_basic_symbol_{start}")
-            symbol.hasJointType = joint_name
-            symbol.hasDirection = sym_direction
-            symbol.hasLevel = sym_level
-            symbol.hasStartTime = (1+ start)/120
-            symbol.hasEndTime =(1+ frame_id)/120 
+            symbol.jointType = joint_name
+            symbol.direction = sym_direction
+            symbol.level = sym_level
+            symbol.startTime = (start)/120
+            symbol.endTime =(frame_id)/120 
 
         self.retract(sym)
         
@@ -1355,46 +1355,46 @@ def run_classification(output_onto_path,joints_info, keyframes, fps=120):
 #             else: l='PlaceLow'
 #             s=Symbol(); s.jointName=[j]; s.directionName=[d]; s.levelName=[l]
 #             syms.append(s)
-#         seg.hasSymbol = syms
+#         seg.Symbol = syms
 #     @Rule(SegmentFact(foot_L=P(lambda f:f>0.1), foot_R=P(lambda f:f>0.1), segment=MATCH.seg))
-#     def jump(self, seg): seg.hasSpaceQuality=[Direct()]
+#     def jump(self, seg): seg.SpaceQuality=[Direct()]
 #     @Rule(SegmentFact(foot_L=P(lambda f:f<=0.1), foot_R=P(lambda f:f<=0.1), delta_y=P(lambda dy: dy< -0.1), segment=MATCH.seg))
-#     def squat(self, seg): seg.hasSpaceQuality=[Indirect()]
+#     def squat(self, seg): seg.SpaceQuality=[Indirect()]
 #     @Rule(SegmentFact(delta_xz=P(lambda dx: dx>0.01), segment=MATCH.seg))
-#     def step(self, seg): seg.hasSpaceQuality=[Direct()]
+#     def step(self, seg): seg.SpaceQuality=[Direct()]
 #     @Rule(SegmentFact(delta_xz=P(lambda dx: dx<=0.01), segment=MATCH.seg))
-#     def stand(self, seg): seg.hasSpaceQuality=[Indirect()]
+#     def stand(self, seg): seg.SpaceQuality=[Indirect()]
 
 #     # Turn detection rules
 #     @Rule(SegmentFact(delta_yaw=P(lambda y:y>15), segment=MATCH.seg))
-#     def turn_left(self, seg): seg.hasFlowQuality=[BoundFlow()]
+#     def turn_left(self, seg): seg.FlowQuality=[BoundFlow()]
 #     @Rule(SegmentFact(delta_yaw=P(lambda y:y< -15), segment=MATCH.seg))
-#     def turn_right(self, seg): seg.hasFlowQuality=[BoundFlow()]
+#     def turn_right(self, seg): seg.FlowQuality=[BoundFlow()]
 #     @Rule(SegmentFact(delta_yaw=P(lambda y:-15<=y<=15), segment=MATCH.seg))
-#     def no_turn(self, seg): seg.hasFlowQuality=[FreeFlow()]
+#     def no_turn(self, seg): seg.FlowQuality=[FreeFlow()]
 
 #     # LMA Effort: Weight
 #     @Rule(SegmentFact(weight=P(lambda w:w>1.0), segment=MATCH.seg))
-#     def weight_strong(self, seg): seg.hasEffortQuality=[Strong()]
+#     def weight_strong(self, seg): seg.EffortQuality=[Strong()]
 #     @Rule(SegmentFact(weight=P(lambda w:w<=1.0), segment=MATCH.seg))
-#     def weight_light(self, seg): seg.hasEffortQuality=[Light()]
+#     def weight_light(self, seg): seg.EffortQuality=[Light()]
 
 #     # Time Effort
 #     @Rule(SegmentFact(timeq=P(lambda t:t>1.0), segment=MATCH.seg))
-#     def time_sudden(self, seg): seg.hasTimeQuality=[Sudden()]
+#     def time_sudden(self, seg): seg.TimeQuality=[Sudden()]
 #     @Rule(SegmentFact(timeq=P(lambda t:t<=1.0), segment=MATCH.seg))
-#     def time_sustained(self, seg): seg.hasTimeQuality=[Sustained()]
+#     def time_sustained(self, seg): seg.TimeQuality=[Sustained()]
 
 #     # Flow Effort (already partly used by turn)
 #     @Rule(SegmentFact(flowq=P(lambda f:f>1.0), segment=MATCH.seg))
-#     def flow_bound(self, seg): seg.hasFlowQuality=[BoundFlow()]
+#     def flow_bound(self, seg): seg.FlowQuality=[BoundFlow()]
 #     @Rule(SegmentFact(flowq=P(lambda f:f<=1.0), segment=MATCH.seg))
-#     def flow_free(self, seg): seg.hasFlowQuality=[FreeFlow()]
+#     def flow_free(self, seg): seg.FlowQuality=[FreeFlow()]
     
 #     @Rule(SegmentFact(spaceq=P(lambda s:s>1.0),segment=MATCH.seg))
-#     def direct(self,seg): seg.hasSpaceQuality=[onto.Direct()]
+#     def direct(self,seg): seg.SpaceQuality=[onto.Direct()]
 #     @Rule(SegmentFact(spaceq=P(lambda s:s<=1.0),segment=MATCH.seg))
-#     def indirect(self,seg): seg.hasSpaceQuality=[onto.Indirect()]
+#     def indirect(self,seg): seg.SpaceQuality=[onto.Indirect()]
    
 
 # # pipeline
